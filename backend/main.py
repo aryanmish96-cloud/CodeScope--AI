@@ -1,5 +1,12 @@
 """
 main.py – FastAPI application entry point for CodeScope AI backend.
+
+KEY CHANGES (grounded intelligence refactor):
+- _repo_indexes[session_id]: symbol index built ONCE during analysis, reused for all /chat calls.
+- /chat endpoint: local search → real candidates → Groq selects ID → backend validates → resolve.
+- /analyze-architecture: uses verified mermaid from architecture.py; Groq only writes explanation.
+- NOT_FOUND: returns a grounded "insufficient evidence" message instead of hallucinating.
+- candidate_map validation: any Groq-invented ID that's not in candidate_map is rejected.
 """
 
 from __future__ import annotations
@@ -24,8 +31,10 @@ from pydantic import BaseModel, Field, field_validator
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 
 from repo_parser import parse_repository, RepoTooLargeError
+from repo_indexer import build_symbol_index, RepoIndex
+from repo_search import search_repository, compute_evidence_label
 from graph_builder import build_graph
-from architecture import detect_architecture
+from architecture import detect_architecture, build_verified_mermaid
 from ai_engine import (
     generate_readme,
     scan_security_risks,
@@ -44,7 +53,7 @@ if not logger.handlers:
 app = FastAPI(
     title="CodeScope AI API",
     description="Intelligent Codebase Explorer & Explainer",
-    version="1.0.0",
+    version="2.0.0",
 )
 
 app.add_middleware(
@@ -59,22 +68,27 @@ app.add_middleware(
 @app.exception_handler(RepoTooLargeError)
 async def repo_too_large_handler(request: Request, exc: RepoTooLargeError):
     return JSONResponse(
-        status_code=413,  # Payload Too Large
+        status_code=413,
         content={"detail": str(exc)},
     )
 
-# All JSON API routes live under /api (matches Vite proxy and direct backend calls)
+# All JSON API routes live under /api
 api = APIRouter(prefix="/api", tags=["codescope"])
 
-# ── In-memory session store ──────────────────────────────────────────────────────
-# Maps session_id → full analysis payload (to avoid re-cloning on every request)
+# ── In-memory session store ────────────────────────────────────────────────────
+# Maps session_id → full analysis payload
 _sessions: dict[str, dict[str, Any]] = {}
+
+# Maps session_id → RepoIndex (built ONCE per session during analysis pipeline)
+# NEVER rebuilt inside /chat request handlers.
+_repo_indexes: dict[str, RepoIndex] = {}
+
 _jobs: dict[str, dict[str, Any]] = {}
 _jobs_lock = threading.Lock()
 _analysis_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="codescope-analysis")
 
 
-# ── Request / Response Models ────────────────────────────────────────────────────
+# ── Request / Response Models ──────────────────────────────────────────────────
 class AnalyzeRequest(BaseModel):
     repo_url: str = Field(..., min_length=1, description="HTTPS GitHub repository URL")
     session_id: str | None = None
@@ -129,6 +143,23 @@ def _run_analysis_pipeline(repo_url: str, set_status=None) -> dict[str, Any]:
     risks = scan_security_risks(files)
 
     session_id = _new_session_id(repo_url)
+
+    # ── Build symbol index ONCE (not per-request) ──────────────────────────────
+    if set_status:
+        set_status("Building symbol index...")
+    try:
+        repo_index = build_symbol_index(files, session_id=session_id)
+        _repo_indexes[session_id] = repo_index
+        logger.info(
+            "Symbol index built for session %s: %d symbols, %d keyword entries",
+            session_id,
+            len(repo_index.symbols),
+            len(repo_index.keyword_index),
+        )
+    except Exception as e:
+        logger.warning("Symbol index build failed (chat will use file-level fallback): %s", e)
+        _repo_indexes[session_id] = None  # type: ignore[assignment]
+
     _sessions[session_id] = {
         "repo_url": repo_url,
         "repo_name": stats["repo_name"],
@@ -233,6 +264,9 @@ class ChatRequest(BaseModel):
     session_id: str = Field(..., min_length=1)
     question: str = Field(..., min_length=1)
     history: list[dict] = Field(default_factory=list)
+    # Grounded chat fields (optional – backward compatible with old frontend)
+    current_file: str | None = None    # Currently open file path
+    mode: str = "repo"                 # "file" | "flow" | "repo"
 
     @field_validator("session_id", "question")
     @classmethod
@@ -241,6 +275,14 @@ class ChatRequest(BaseModel):
         if not s:
             raise ValueError("field cannot be empty")
         return s
+
+    @field_validator("mode")
+    @classmethod
+    def validate_mode(cls, v: str) -> str:
+        v = (v or "repo").lower().strip()
+        if v not in {"file", "flow", "repo"}:
+            return "repo"
+        return v
 
 
 class ReadmeRequest(BaseModel):
@@ -258,7 +300,7 @@ class ReadmeRequest(BaseModel):
 # ── Health check ────────────────────────────────────────────────────────────────
 @app.get("/health")
 async def health():
-    return {"status": "ok", "model": "llama-3.1-8b-instant", "provider": "groq"}
+    return {"status": "ok", "model": "openai/gpt-oss-120b", "provider": "groq"}
 
 
 # ── Analyze repository ────────────────────────────────────────────────────────────
@@ -267,6 +309,7 @@ def analyze(req: AnalyzeRequest):
     """
     Clone and fully analyze a GitHub repository.
     Returns: file tree, dependency graph, architecture, stats, security risks.
+    Also builds symbol index (stored per session for grounded chat).
     """
     repo_url = req.repo_url
     if not repo_url.startswith("http"):
@@ -328,7 +371,6 @@ def analyze_result(job_id: str):
         return result
 
 
-
 # ── AI Repo Summary ──────────────────────────────────────────────────────────────
 @api.post("/summarize")
 def summarize(req: SummarizeRequest):
@@ -336,7 +378,6 @@ def summarize(req: SummarizeRequest):
     logger.info("POST /api/summarize session_id=%s", req.session_id)
     session = _sessions.get(req.session_id)
     if not session:
-        logger.warning("Session missing for summarize: %s (known: %d)", req.session_id, len(_sessions))
         raise HTTPException(
             404,
             "Session not found. Run /api/analyze again (sessions are in-memory and reset if the server restarts).",
@@ -346,11 +387,8 @@ def summarize(req: SummarizeRequest):
     arch = session["arch"]
     graph = session["graph"]
 
-    # Pick sample files for context
     important_paths = [f["path"] for f in graph["metrics"]["important_files"]]
-    sample_contents = {
-        p: files[p]["content"] for p in important_paths if p in files
-    }
+    sample_contents = {p: files[p]["content"] for p in important_paths if p in files}
 
     try:
         result = summarize_repo(
@@ -442,97 +480,248 @@ def simulate_execution_endpoint(req: FileExplainRequest):
         raise HTTPException(500, f"Simulation failed: {str(e)}")
 
 
-def _normalize_chat_output(session: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
-    """Map AI file names to real session paths and normalize highlight line ranges."""
-    file_keys = list(session.get("files", {}).keys())
-    key_set = set(file_keys)
-
-    def resolve_path(raw: str | None) -> str | None:
-        if not raw or not isinstance(raw, str):
-            return None
-        p = raw.strip().replace("\\", "/").lstrip("/")
-        if p in key_set:
-            return p
-        if f"./{p}" in key_set:
-            return f"./{p}"
-        base = p.split("/")[-1]
-        candidates = [k for k in file_keys if k == p or k.endswith("/" + p) or k.endswith("/" + base)]
-        if len(candidates) == 1:
-            return candidates[0]
-        if len(candidates) > 1:
-            return sorted(candidates, key=len)[0]
-        return None
-
-    rel = result.get("relevant_files") or []
-    resolved_files: list[str] = []
-    for f in rel:
-        if not isinstance(f, str):
-            continue
-        rp = resolve_path(f)
-        resolved_files.append(rp if rp else f)
-    seen: set[str] = set()
-    out_files: list[str] = []
-    for p in resolved_files:
-        if p not in seen:
-            seen.add(p)
-            out_files.append(p)
-    result["relevant_files"] = out_files
-
-    raw_hl = result.get("highlights") or []
-    out_hl: list[dict[str, Any]] = []
-    for item in raw_hl:
-        if not isinstance(item, dict):
-            continue
-        raw_fp = item.get("file") or item.get("path")
-        rp = resolve_path(str(raw_fp) if raw_fp else "")
-        lines = item.get("lines")
-        if not isinstance(lines, list):
-            lines = []
-        nums: list[int] = []
-        for x in lines:
-            if isinstance(x, int) and x > 0:
-                nums.append(x)
-            elif isinstance(x, float) and x > 0:
-                nums.append(int(x))
-            elif isinstance(x, str) and x.strip().isdigit():
-                nums.append(int(x.strip()))
-        if not nums:
-            continue
-        start, end = min(nums), max(nums)
-        if rp:
-            out_hl.append({"file": rp, "lines": [start, end]})
-    result["highlights"] = out_hl
-    return result
+def _not_found_response(question: str, query_expanded: list[str]) -> dict[str, Any]:
+    """Return a NOT_FOUND response when evidence is insufficient."""
+    return {
+        "answer": (
+            "I couldn't find enough repository evidence to answer this question confidently.\n\n"
+            "Suggestions:\n"
+            "• Try switching to **REPO** mode for broader search\n"
+            "• Try rephrasing the question\n"
+            "• Check if the feature exists in this repository\n"
+            "• The feature may use different naming conventions"
+        ),
+        "relevant_files": [],
+        "highlights": [],
+        "reason": "Insufficient repository evidence",
+        "evidence_label": "No evidence",
+        "confidence": 0,
+        "not_found": True,
+        "query_terms": query_expanded[:10],
+        "latency_ms": 0,
+    }
 
 
 # ── Chat ──────────────────────────────────────────────────────────────────────────
 @api.post("/chat")
 def chat(req: ChatRequest):
-    """Chat with the AI about the repository."""
+    """
+    Grounded chat with the repository.
+
+    Pipeline:
+    1. Reuse cached symbol index (built during analysis – NEVER rebuilt here).
+    2. Fast local search → ranked candidates with real code snippets + match_reasons.
+    3. NOT_FOUND fast path if evidence is insufficient.
+    4. ONE Groq call: receives real candidates, selects by ID.
+    5. Backend validates returned candidate ID against candidate_map.
+    6. Resolves validated ID to real file + lines.
+    7. Returns highlights from verified data (not Groq invention).
+    """
     session = _sessions.get(req.session_id)
     if not session:
         raise HTTPException(404, "Session not found. Run /api/analyze again.")
 
-    graph = session.get("graph", {})
-    file_paths_sample = sorted(session.get("files", {}).keys())[:150]
-    repo_context = {
-        "repo_name": session["repo_name"],
-        "tech_stack": session["arch"].get("tech_stack", []),
-        "file_count": session["stats"]["file_count"],
-        "important_files": graph.get("metrics", {}).get("important_files", []),
-        "file_paths_sample": file_paths_sample,
-    }
+    files = session["files"]
 
-    try:
-        result = chat_with_repo(
-            question=req.question,
-            repo_context=repo_context,
-            conversation_history=req.history,
+    # ── Get or lazily rebuild index (handles server restart) ──────────────────
+    repo_index = _repo_indexes.get(req.session_id)
+    if repo_index is None:
+        logger.info("Lazily rebuilding symbol index for session %s", req.session_id)
+        try:
+            repo_index = build_symbol_index(files, session_id=req.session_id)
+            _repo_indexes[req.session_id] = repo_index
+        except Exception as e:
+            logger.warning("Lazy index build failed: %s", e)
+            repo_index = None
+
+    # ── Fast local search (no Groq) ───────────────────────────────────────────
+    t_search = time.time()
+    search_result = None
+
+    if repo_index is not None:
+        try:
+            search_result = search_repository(
+                repo_index=repo_index,
+                files=files,
+                query=req.question,
+                mode=req.mode,
+                current_file=req.current_file,
+                max_candidates=8,
+                not_found_threshold=0.25,
+            )
+        except Exception as e:
+            logger.warning("Search failed (will proceed with no candidates): %s", e)
+            search_result = None
+
+    search_ms = int((time.time() - t_search) * 1000)
+
+    # NOT_FOUND fast path (if local search found nothing)
+    if search_result is None or search_result.not_found or not search_result.candidates:
+        logger.info(
+            "NOT_FOUND for question='%s...' mode=%s current_file=%s",
+            req.question[:60], req.mode, req.current_file,
         )
-        return _normalize_chat_output(session, result)
+        resp = _not_found_response(req.question, search_result.query_expanded if search_result else [])
+        resp["latency_ms"] = search_ms
+        return resp
+
+    # ── Build candidate_map (S1, S2, ...) for Groq and validation ─────────────
+    candidate_map: dict[str, dict] = {}
+    groq_candidates: list[dict] = []
+
+    for i, c in enumerate(search_result.candidates):
+        key = f"S{i + 1}"
+        candidate_map[key] = {
+            "file": c.file,
+            "symbol": c.symbol,
+            "start_line": c.start_line,
+            "end_line": c.end_line,
+            "route_path": c.route_path,
+            "sym_type": c.sym_type,
+            "score": c.score,
+            "match_reasons": c.match_reasons,
+        }
+        groq_candidates.append({
+            "id": key,
+            "file": c.file,
+            "symbol": c.symbol,
+            "start_line": c.start_line,
+            "end_line": c.end_line,
+            "route_path": c.route_path,
+            "sym_type": c.sym_type,
+            "match_reasons": c.match_reasons,
+            "snippet": c.snippet,
+        })
+
+    # Current file content for FILE mode
+    current_file_content: str | None = None
+    if req.current_file and req.mode == "file":
+        fd = files.get(req.current_file, {})
+        current_file_content = fd.get("content")
+
+    # ── ONE Groq reasoning call ────────────────────────────────────────────────
+    try:
+        groq_result = chat_with_repo(
+            question=req.question,
+            candidates=groq_candidates,
+            candidate_map=candidate_map,
+            conversation_history=req.history,
+            repo_context={
+                "repo_name": session["repo_name"],
+                "tech_stack": session["arch"].get("tech_stack", []),
+            },
+            current_file_content=current_file_content,
+            mode=req.mode,
+        )
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(500, f"Chat failed: {str(e)}")
+
+    # ── Backend validation: reject any candidate ID not in candidate_map ───────
+    primary_id = groq_result.get("primary_candidate")
+    related_ids = groq_result.get("related_candidates") or []
+
+    # Validate primary
+    validated_primary: dict | None = None
+    if primary_id:
+        if primary_id not in candidate_map:
+            # Groq invented an ID – log and reject
+            logger.warning(
+                "Groq returned invalid candidate ID '%s' (not in candidate_map %s). Rejecting.",
+                primary_id,
+                list(candidate_map.keys()),
+            )
+            primary_id = None
+        else:
+            validated_primary = candidate_map[primary_id]
+
+    # Validate related IDs
+    validated_related: list[dict] = []
+    for rid in related_ids[:4]:
+        if rid in candidate_map:
+            validated_related.append(candidate_map[rid])
+        else:
+            logger.warning("Groq returned invalid related candidate ID '%s'. Skipping.", rid)
+
+    # If primary was rejected AND no valid related → NOT_FOUND
+    if validated_primary is None and not validated_related:
+        logger.info("All Groq-returned candidate IDs were invalid. Returning NOT_FOUND.")
+        resp = _not_found_response(req.question, search_result.query_expanded)
+        resp["latency_ms"] = groq_result.get("latency_ms", 0)
+        return resp
+
+    # ── Resolve validated candidates to real file + lines ─────────────────────
+    highlights: list[dict] = []
+
+    if validated_primary:
+        highlights.append({
+            "file": validated_primary["file"],
+            "lines": [validated_primary["start_line"], validated_primary["end_line"]],
+            "symbol": validated_primary.get("symbol"),
+            "route": validated_primary.get("route_path"),
+        })
+
+    for rel in validated_related[:3]:
+        highlights.append({
+            "file": rel["file"],
+            "lines": [rel["start_line"], rel["end_line"]],
+            "symbol": rel.get("symbol"),
+            "route": rel.get("route_path"),
+        })
+
+    # Build relevant_files list (de-duplicated)
+    seen_files: set[str] = set()
+    relevant_files: list[str] = []
+    for h in highlights:
+        if h["file"] not in seen_files:
+            seen_files.add(h["file"])
+            relevant_files.append(h["file"])
+
+    # Compute evidence label from retrieved candidates
+    evidence_label = compute_evidence_label(search_result.candidates)
+
+    # Build evidence pills data for the UI
+    evidence_pills: list[dict] = []
+    if validated_primary:
+        p = validated_primary
+        sym_label = p.get("symbol") or p["file"].split("/")[-1]
+        evidence_pills.append({
+            "file": p["file"],
+            "filename": p["file"].split("/")[-1],
+            "start_line": p["start_line"],
+            "end_line": p["end_line"],
+            "symbol": sym_label,
+            "route": p.get("route_path"),
+            "reasons": candidate_map.get(primary_id, {}).get("match_reasons", []),
+            "is_primary": True,
+        })
+    for i, rel in enumerate(validated_related[:3]):
+        rid = related_ids[i] if i < len(related_ids) else None
+        sym_label = rel.get("symbol") or rel["file"].split("/")[-1]
+        evidence_pills.append({
+            "file": rel["file"],
+            "filename": rel["file"].split("/")[-1],
+            "start_line": rel["start_line"],
+            "end_line": rel["end_line"],
+            "symbol": sym_label,
+            "route": rel.get("route_path"),
+            "reasons": candidate_map.get(rid, {}).get("match_reasons", []) if rid else [],
+            "is_primary": False,
+        })
+
+    return {
+        "answer": groq_result.get("answer", ""),
+        "reasoning": groq_result.get("reasoning", ""),
+        "relevant_files": relevant_files,
+        "highlights": highlights,
+        "evidence_pills": evidence_pills,
+        "evidence_label": evidence_label,
+        "reason": groq_result.get("reasoning", ""),
+        "confidence": 0,   # deprecated – use evidence_label
+        "not_found": False,
+        "search_ms": search_ms,
+        "latency_ms": groq_result.get("latency_ms", 0),
+    }
 
 
 # ── README Generator ──────────────────────────────────────────────────────────────
@@ -546,7 +735,6 @@ def readme(req: ReadmeRequest):
     arch = session["arch"]
     graph = session["graph"]
 
-    # We need a summary first - use a brief placeholder if not cached
     summary_text = f"A {arch['project_type']} built with {', '.join(arch['tech_stack'][:3])}"
 
     try:
@@ -564,10 +752,14 @@ def readme(req: ReadmeRequest):
         raise HTTPException(500, f"README generation failed: {str(e)}")
 
 
-# ── AI Architecture Analysis ──────────────────────────────────────────────────────
+# ── AI Architecture Analysis (grounded) ──────────────────────────────────────────
 @api.post("/analyze-architecture")
 def arch_analysis(req: SummarizeRequest):
-    """Get AI-powered deep architecture analysis."""
+    """
+    Get AI-powered deep architecture analysis.
+    Mermaid diagram comes from detect_architecture() (verified, not Groq-generated).
+    Groq only writes the text explanation based on detected components.
+    """
     session = _sessions.get(req.session_id)
     if not session:
         raise HTTPException(404, "Session not found. Run /api/analyze again.")
@@ -579,6 +771,7 @@ def arch_analysis(req: SummarizeRequest):
             files=session["files"],
             tech_stack=arch["tech_stack"],
             project_type=arch["project_type"],
+            detected_arch=arch,  # Pass verified arch to prevent hallucination
         )
         return result
     except Exception as e:
@@ -610,10 +803,8 @@ app.include_router(api)
 
 
 # ── Static files & SPA catch-all ───────────────────────────────────────────────
-# In a real Docker build, frontend/dist will be copied to backend/dist or similar.
-# We prioritize the FRONTEND_DIST_PATH env var, then fallback to relative path.
 dist_path = os.getenv(
-    "FRONTEND_DIST_PATH", 
+    "FRONTEND_DIST_PATH",
     os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
 )
 
@@ -625,20 +816,14 @@ if os.path.exists(dist_path):
 
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
-        # If it's an API route that somehow leaked here, let it 404
         if full_path.startswith("api/"):
-             raise HTTPException(status_code=404)
-        
-        # Check if file exists in dist (e.g. favicon.ico)
+            raise HTTPException(status_code=404)
         local_file = os.path.join(dist_path, full_path)
         if os.path.isfile(local_file):
             return FileResponse(local_file)
-        
-        # Otherwise serve index.html for SPA routing
         index_file = os.path.join(dist_path, "index.html")
         if os.path.exists(index_file):
             return FileResponse(index_file)
-        
         raise HTTPException(status_code=404, detail="Static files not found")
 else:
     logger.warning(f"Static files directory NOT found at: {dist_path}. SPA will not be served.")

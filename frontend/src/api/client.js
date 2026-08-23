@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-// Dev: Vite proxies /api → http://127.0.0.1:8000. Production: set VITE_API_URL to full API root, e.g. https://api.example.com/api
+// Dev: Vite proxies /api → http://127.0.0.1:8000. Production: set VITE_API_URL to full API root.
 const BASE = import.meta.env.VITE_API_URL || '/api'
 
 const api = axios.create({
@@ -34,7 +34,7 @@ export const getAnalyzeStatus = (jobId) =>
 export const getAnalyzeResult = (jobId) =>
   api.get(`/analyze/result/${jobId}`).then((r) => r.data)
 
-/** Get AI summary for a session (uses repo data stored server-side for that session) */
+/** Get AI summary for a session */
 export const summarizeRepo = (sessionId) =>
   api.post('/summarize', { session_id: sessionId }).then((r) => r.data)
 
@@ -42,9 +42,22 @@ export const summarizeRepo = (sessionId) =>
 export const explainFile = (sessionId, filePath, eli5 = false) =>
   api.post('/explain-file', { session_id: sessionId, file_path: filePath, eli5 }).then((r) => r.data)
 
-/** Chat with the repo AI */
-export const chatWithRepo = (sessionId, question, history = []) =>
-  api.post('/chat', { session_id: sessionId, question, history }).then((r) => r.data)
+/**
+ * Chat with the repo AI — grounded version.
+ * @param {string} sessionId
+ * @param {string} question
+ * @param {Array} history
+ * @param {string|null} currentFile - Currently open file path (for FILE mode)
+ * @param {string} mode - "file" | "flow" | "repo"
+ */
+export const chatWithRepo = (sessionId, question, history = [], currentFile = null, mode = 'repo') =>
+  api.post('/chat', {
+    session_id: sessionId,
+    question,
+    history,
+    current_file: currentFile,
+    mode,
+  }).then((r) => r.data)
 
 /** Generate a professional README */
 export const generateReadme = (sessionId) =>

@@ -1,6 +1,12 @@
 """
-ai_engine.py – Groq integration for CodeScope AI.
+ai_engine.py – Groq integration for CodeScope AI (model: openai/gpt-oss-120b).
 Handles: file explanation, repo summary, ELI5, chat, README generation, risk radar.
+
+GROUNDING RULES (chat_with_repo):
+- Groq receives ONLY verified repository candidates from local search.
+- Groq selects candidate IDs (S1, S2, ...) – never invents filenames/lines.
+- Backend validates returned IDs against candidate_map before resolving to real locations.
+- Temperature 0.1 for repository analysis tasks.
 """
 
 from __future__ import annotations
@@ -24,14 +30,39 @@ def _get_client() -> Groq:
         _client = Groq(api_key=api_key)
     return _client
 
-MODEL_NAME = "llama-3.1-8b-instant"
+MODEL_NAME = "openai/gpt-oss-120b"
 
-# ── confidence heuristic ────────────────────────────────────────────────────────
-def _confidence(had_content: bool) -> int:
-    """Return a 0-100 confidence score based on success."""
-    return 85 if had_content else 30
+# ── Grounded System Prompt ────────────────────────────────────────────────────
+_GROUNDED_SYSTEM_PROMPT = """\
+You are CodeScope AI, a repository-grounded code intelligence assistant.
 
-# ── file explanation ────────────────────────────────────────────────────────────
+You are given VERIFIED repository evidence retrieved by CodeScope's local search engine.
+All candidates below were found by deterministic parsing of the actual repository source code.
+You MUST NOT invent, assume, or fabricate any repository facts.
+
+RULES:
+1. Base all repository-specific claims on the supplied candidates only.
+2. Never invent filenames, directory paths, function names, class names, routes, or line numbers.
+3. Reference only the candidate IDs (S1, S2, ...) supplied in the user message.
+4. If evidence is insufficient, return {"found": false, "reason": "..."}.
+5. Never assume a database, frontend, authentication system, service, or API exists unless evidence shows it.
+6. Accuracy is more important than answering every question.
+7. Separate verified facts from your interpretation.
+8. Never fabricate code.
+9. If the question can be answered from FILE mode (current file provided), prefer that over speculation.
+"""
+
+# ── Evidence label ──────────────────────────────────────────────────────────
+def _evidence_label(score: float, match_count: int, has_exact: bool) -> str:
+    """Return human-readable evidence label. Never returns a raw percentage."""
+    if has_exact or (score >= 0.8 and match_count >= 2):
+        return "Strong evidence"
+    if score >= 0.5 or match_count >= 1:
+        return "Moderate evidence"
+    return "Weak evidence"
+
+
+# ── file explanation ────────────────────────────────────────────────────────
 def explain_file(
     path: str,
     content: str,
@@ -45,9 +76,9 @@ def explain_file(
     if eli5:
         style = "Explain this code like I'm 10 years old. Use simple words, fun analogies, and avoid jargon."
     else:
-        style = "Explain this code clearly to a senior developer. Be concise and precise."
+        style = "Explain this code clearly to a senior developer. Be concise and precise. Reference actual functions and patterns from the code."
 
-    system = "You are a helpful assistant that outputs JSON."
+    system = "You are a helpful assistant that outputs JSON. Reference only the actual code provided."
     prompt = f"""{style}
 
 File: {path}
@@ -59,13 +90,13 @@ File: {path}
 
 Respond with a JSON object with these exact keys:
  {{
-   "summary": "2-3 sentence overview of what this file does",
+   "summary": "2-3 sentence overview of what THIS specific file does (not a generic framework explanation)",
    "key_functions": [
-     {{ "name": "functionName", "description": "concise description" }}
+     {{ "name": "functionName", "description": "concise description of what this specific function does" }}
    ],
-   "logic_flow": "step-by-step description of the main logic flow",
+   "logic_flow": "step-by-step description of the main logic flow in this file",
    "role_in_project": "what role does this file play in the overall project",
-   "complexity_notes": "notable complexity, patterns, or anti-patterns",
+   "complexity_notes": "notable complexity, patterns, or anti-patterns in THIS file",
    "security_flags": ["any potential security issues found, empty list if none"]
  }}
 """
@@ -79,6 +110,7 @@ Respond with a JSON object with these exact keys:
             ],
             response_format={"type": "json_object"},
             max_tokens=1536,
+            temperature=0.1,
         )
         raw = response.choices[0].message.content or "{}"
         data = json.loads(raw)
@@ -87,7 +119,7 @@ Respond with a JSON object with these exact keys:
         data = {"summary": f"Failed to analyze code: {str(e)}", "key_functions": [], "logic_flow": "", "role_in_project": "", "complexity_notes": "", "security_flags": []}
 
     elapsed = time.time() - t0
-    data["confidence"] = _confidence(bool(data.get("summary")))
+    data["confidence"] = 80 if data.get("summary") else 30
     data["latency_ms"] = int(elapsed * 1000)
     return data
 
@@ -108,7 +140,7 @@ def summarize_repo(
     for path, content in list(sample_contents.items())[:4]:
         samples_text += f"\n### {path}\n```\n{content[:1500]}\n```\n"
 
-    system = "You are a helpful assistant that outputs JSON."
+    system = "You are a helpful assistant that outputs JSON. Base your analysis on the provided file contents."
     prompt = f"""You are analyzing the GitHub repository: {repo_name}
 URL: {repo_url}
 
@@ -121,10 +153,10 @@ Sample file contents:{samples_text}
 
 Provide a comprehensive repository analysis as JSON:
 {{
-  "elevator_pitch": "One punchy sentence describing what this repo does",
-  "detailed_summary": "3-4 sentence summary of the project purpose, architecture, and usage",
+  "elevator_pitch": "One punchy sentence describing what this repo does based on the actual code",
+  "detailed_summary": "3-4 sentence summary of the project purpose, architecture, and usage based on the files above",
   "sixty_second_explanation": "A 60-second verbal explanation a developer could give to a non-technical stakeholder",
-  "strengths": ["list of 3-5 architectural or code strengths"],
+  "strengths": ["list of 3-5 architectural or code strengths visible in the code"],
   "weaknesses": ["list of 2-3 potential issues or areas for improvement"],
   "use_cases": ["2-3 real-world use cases for this project"],
   "getting_started": "One paragraph on how to get started with this codebase",
@@ -150,66 +182,97 @@ Provide a comprehensive repository analysis as JSON:
         data = {"elevator_pitch": f"Failed to analyze repo logic: {str(e)}", "detailed_summary": "", "sixty_second_explanation": ""}
 
     elapsed = time.time() - t0
-    data["confidence"] = _confidence(True)
+    data["confidence"] = 80
     data["latency_ms"] = int(elapsed * 1000)
     return data
 
-# ── chat with repo ────────────────────────────────────────────────────────────────
+# ── Grounded chat with repo ────────────────────────────────────────────────────────
 def chat_with_repo(
     question: str,
-    repo_context: dict[str, Any],
+    candidates: list[dict],         # Pre-retrieved real candidates [{id, file, symbol, snippet, match_reasons, ...}]
+    candidate_map: dict[str, dict],  # id → candidate dict (for reference)
     conversation_history: list[dict],
+    repo_context: dict,
+    current_file_content: str | None = None,
+    mode: str = "repo",
 ) -> dict[str, Any]:
+    """
+    Groq-powered chat grounded in real repository evidence.
+
+    This function assumes candidates were already retrieved by repo_search.search_repository().
+    Groq receives only the supplied candidates and must select from them by ID.
+    It must NOT invent file paths, line numbers, or symbol names.
+
+    Temperature is set to 0.1 for repository analysis (not creative mode).
+    """
     client = _get_client()
 
-    paths = repo_context.get("file_paths_sample") or []
-    paths_block = "\n".join(paths[:120]) if paths else "(file list unavailable)"
-    important = repo_context.get("important_files") or []
-    important_paths = ", ".join(
-        f["path"] for f in important[:12] if isinstance(f, dict) and f.get("path")
-    )
+    # Build context block from real candidates
+    candidates_block = ""
+    for c in candidates:
+        cid = c.get("id", "?")
+        file_path = c.get("file", "?")
+        symbol = c.get("symbol") or "(file level)"
+        sym_type = c.get("sym_type", "")
+        start_ln = c.get("start_line", 1)
+        end_ln = c.get("end_line", 1)
+        route = c.get("route_path")
+        reasons = c.get("match_reasons", [])
+        snippet = c.get("snippet", "")
 
-    system = f"""You are an expert codebase assistant.
+        candidates_block += f"\n---\nCandidate {cid}:\n"
+        candidates_block += f"File: {file_path}\n"
+        candidates_block += f"Symbol: {symbol} ({sym_type})\n"
+        candidates_block += f"Lines: {start_ln}–{end_ln}\n"
+        if route:
+            candidates_block += f"Route: {route}\n"
+        if reasons:
+            candidates_block += f"Match reasons: {'; '.join(reasons[:3])}\n"
+        if snippet:
+            candidates_block += f"Code:\n```\n{snippet[:1000]}\n```\n"
 
-Your task:
-1. Answer the user's question clearly and point to concrete code locations when possible.
-2. List the most relevant repository files (use EXACT paths from the lists below).
-3. For logic/behavior questions, you MUST add "highlights": precise 1-based line ranges (inclusive) showing where that logic lives so the UI can jump there.
+    # Current file context for FILE mode
+    file_ctx = ""
+    if current_file_content and mode == "file":
+        file_ctx = f"\n\nCurrently open file content (primary context):\n```\n{current_file_content[:3000]}\n```\n"
 
-Return STRICT JSON only:
+    system = _GROUNDED_SYSTEM_PROMPT
+
+    user_prompt = f"""Repository: {repo_context.get('repo_name', 'Unknown')}
+Tech stack: {', '.join(repo_context.get('tech_stack', []))}
+Mode: {mode.upper()}
+{file_ctx}
+Question: {question}
+
+Repository evidence (verified by local search):
+{candidates_block if candidates_block else "(No candidates found – insufficient evidence)"}
+
+Respond with STRICT JSON only:
 {{
-  "answer": "Clear explanation referencing the highlighted code when applicable",
-  "relevant_files": ["path/from/repo/root.py", "other.js"],
-  "reason": "One short sentence on why these files matter",
-  "highlights": [
-    {{ "file": "path/from/repo/root.py", "lines": [start_line, end_line] }}
-  ]
+  "found": true | false,
+  "primary_candidate": "S1",
+  "related_candidates": ["S2", "S3"],
+  "answer": "Clear, specific explanation referencing the actual code in the candidates",
+  "reasoning": "Brief explanation of why primary_candidate is the best match"
 }}
 
-Rules for "highlights":
-* "lines" is always exactly two integers: [start_line, end_line] inclusive (1-based line numbers in the file).
-* Prefer a tight range (often 5–40 lines) around the key logic, not the whole file.
-* When the question is about how something works, include at least one highlight if any file path matches the lists below.
-* Use paths that appear verbatim in "Known paths" or "Important files" when possible.
-
-Repository: {repo_context.get('repo_name', 'Unknown')}
-Tech stack: {', '.join(repo_context.get('tech_stack', []))}
-Important files: {important_paths or '—'}
-
-Known paths (substring match allowed; prefer these exact strings):
-{paths_block}
+RULES:
+- "primary_candidate" and "related_candidates" MUST only reference IDs from the candidates above (S1, S2, ...).
+- If no candidate is relevant, set "found": false and explain why.
+- Do NOT invent any file path, line number, function name, or route not shown above.
+- For FILE mode: base your answer primarily on the currently open file content if provided.
 """
 
     messages = [{"role": "system", "content": system}]
-    
+
     for turn in conversation_history[-6:]:
         role = "assistant" if turn.get("role") == "assistant" else "user"
         content = turn.get("content")
         if not content:
             continue
         messages.append({"role": role, "content": str(content)})
-        
-    messages.append({"role": "user", "content": question})
+
+    messages.append({"role": "user", "content": user_prompt})
 
     t0 = time.time()
     try:
@@ -217,31 +280,25 @@ Known paths (substring match allowed; prefer these exact strings):
             model=MODEL_NAME,
             messages=messages,
             response_format={"type": "json_object"},
-            max_tokens=1536,
+            max_tokens=1024,
+            temperature=0.1,  # Low temperature for deterministic repository reasoning
         )
         raw = response.choices[0].message.content or "{}"
         data = json.loads(raw)
-        answer = data.get("answer", "")
-        relevant_files = data.get("relevant_files", [])
-        reason = data.get("reason", "")
-        highlights = data.get("highlights", [])
     except Exception as e:
         print(f"Groq Chat Error: {e}")
-        answer = f"Error communicating with AI: {str(e)}"
-        relevant_files = []
-        reason = ""
-        highlights = []
-        
-    elapsed = time.time() - t0
+        data = {
+            "found": False,
+            "primary_candidate": None,
+            "related_candidates": [],
+            "answer": f"Error communicating with AI: {str(e)}",
+            "reasoning": "",
+        }
 
-    return {
-        "answer": answer,
-        "relevant_files": relevant_files,
-        "reason": reason,
-        "highlights": highlights,
-        "confidence": _confidence(True),
-        "latency_ms": int(elapsed * 1000),
-    }
+    elapsed = time.time() - t0
+    data["latency_ms"] = int(elapsed * 1000)
+    return data
+
 
 # ── README generator ──────────────────────────────────────────────────────────────
 def generate_readme(
@@ -308,7 +365,7 @@ def simulate_execution(
     client = _get_client()
     tech_hint = f"Tech stack: {', '.join(tech_stack)}." if tech_stack else ""
 
-    system = "You are a senior systems architect. You output JSON only."
+    system = "You are a senior systems architect. You output JSON only. Base your analysis on the provided code."
     prompt = f"""Predict the step-by-step execution flow of this file: {path}
 {tech_hint}
 
@@ -318,11 +375,12 @@ def simulate_execution(
 
 Provide a high-fidelity sequence of logical steps of how this code executes (at runtime).
 Focus on: triggers, data flow, validations, transformations, and final outputs.
+Reference actual function names and patterns from the code.
 
 Return output in STRICT JSON format:
 {{
   "steps": [
-    {{ "id": 1, "label": "Short Action (3-5 words)", "description": "Detailed explanation of what happens here", "icon": "emoji" }},
+    {{ "id": 1, "label": "Short Action (3-5 words)", "description": "Detailed explanation referencing actual code", "icon": "emoji" }},
     ...
   ],
   "trigger": "What triggers this file (e.g., HTTP Request, Cron, Import)",
@@ -332,7 +390,7 @@ Return output in STRICT JSON format:
 IMPORTANT:
 * Maximum 6-8 steps
 * Icons should be tech-relevant emojis
-* Make descriptions punchy and technical
+* Make descriptions reference actual functions/patterns from the code
 """
 
     t0 = time.time()
@@ -345,6 +403,7 @@ IMPORTANT:
             ],
             response_format={"type": "json_object"},
             max_tokens=1536,
+            temperature=0.1,
         )
         raw = response.choices[0].message.content or "{}"
         data = json.loads(raw)
@@ -358,85 +417,75 @@ IMPORTANT:
 
     elapsed = time.time() - t0
     data["latency_ms"] = int(elapsed * 1000)
-    data["confidence"] = _confidence(bool(data.get("steps")))
+    data["confidence"] = 80 if data.get("steps") else 30
     return data
 
 
-# ── AI Architecture Analysis ─────────────────────────────────────────────────────
+# ── AI Architecture Analysis (grounded) ─────────────────────────────────────────
 def analyze_architecture(
     repo_name: str,
     files: dict[str, dict],
     tech_stack: list[str],
     project_type: str,
+    detected_arch: dict | None = None,
 ) -> dict[str, Any]:
     """
-    AI-powered deep architecture analysis using the expert software architect prompt.
-    Returns structured JSON with frontend, backend, database, APIs, and architecture flow.
+    AI-powered architecture analysis grounded in detected evidence.
+
+    The mermaid diagram is generated from detect_architecture() output (verified).
+    Groq only writes the text explanation based on detected components.
+    No phantom Frontend/Database nodes.
     """
     client = _get_client()
 
-    # Collect file paths
-    file_list = list(files.keys())[:200]
-    file_list_str = "\n".join(file_list)
+    # Use already-detected architecture if provided
+    if detected_arch:
+        verified_layers = detected_arch.get("layers", {})
+        verified_dbs = detected_arch.get("databases", [])
+        verified_mermaid = detected_arch.get("mermaid_diagram", "")
+        layer_evidence = detected_arch.get("layer_evidence", {})
+        db_evidence = detected_arch.get("db_evidence", {})
+    else:
+        # Minimal fallback summary without Groq
+        verified_layers = {}
+        verified_dbs = []
+        verified_mermaid = "graph TD\n  REPO[\"Repository\"]"
+        layer_evidence = {}
+        db_evidence = {}
 
-    # Collect code snippets from key files
-    key_extensions = {".py", ".js", ".jsx", ".ts", ".tsx", ".java", ".go", ".rs", ".yaml", ".yml", ".json", ".toml"}
-    snippets = []
-    char_budget = 3000
-    for path, data in files.items():
-        ext = "." + path.rsplit(".", 1)[-1] if "." in path else ""
-        if ext.lower() in key_extensions and data.get("content", "").strip():
-            snippet = data["content"][:800]
-            snippets.append(f"### {path}\n```\n{snippet}\n```")
-            char_budget -= len(snippet)
-            if char_budget <= 0:
-                break
+    # Build a concise evidence summary to ground Groq's explanation
+    evidence_summary = f"Repository: {repo_name}\n"
+    evidence_summary += f"Project type: {project_type}\n"
+    evidence_summary += f"Tech stack: {', '.join(tech_stack) or 'Unknown'}\n"
+    evidence_summary += f"Detected databases: {', '.join(verified_dbs) or 'None'}\n"
+    evidence_summary += f"Frontend detected: {verified_layers.get('frontend', False)}\n"
+    evidence_summary += f"Backend detected: {verified_layers.get('backend', False)}\n"
+    evidence_summary += f"Tests detected: {verified_layers.get('tests', False)}\n"
+    evidence_summary += f"Infrastructure detected: {verified_layers.get('infrastructure', False)}\n"
 
-    code_snippets_str = "\n\n".join(snippets) if snippets else "No code snippets available."
+    # Show a sample of key files (no large snippets – just paths)
+    key_paths = list(files.keys())[:50]
+    evidence_summary += f"\nKey file paths (sample):\n" + "\n".join(key_paths[:30])
 
-    system = "You are an expert software architect. You output JSON only."
-    prompt = f"""Analyze the following project files and code snippets.
+    system = "You are an expert software architect. Output JSON only. Describe only what the evidence supports."
+    prompt = f"""Based on the following VERIFIED repository evidence, provide an architecture explanation.
 
-Your task:
+{evidence_summary}
 
-1. Identify the system architecture
+RULES:
+- Describe only what the evidence above confirms.
+- Do NOT add components not listed (e.g., do not add "Database" if databases = None).
+- Do NOT mention generic framework features as if they are in this repo.
+- If a component is "Not detected", say so.
 
-2. Detect:
-   * Frontend technology
-   * Backend framework
-   * Database (if any)
-   * APIs / services
-
-3. Classify components into:
-   * Frontend
-   * Backend
-   * Database
-   * Utilities / Config
-
-4. Provide output in STRICT JSON format:
-
+Return STRICT JSON:
 {{
-  "frontend": "...",
-  "backend": "...",
-  "database": "...",
-  "apis": ["..."],
-  "mermaid_diagram": "graph TD\\n  A[Frontend] --> B[Backend]\\n  B --> C[(Database)]",
-  "explanation": "Short explanation of how the system works"
+  "frontend": "React frontend" or "Not detected",
+  "backend": "FastAPI backend" or "Not detected",
+  "database": "PostgreSQL" or "Not detected",
+  "apis": ["list of detected API route patterns or empty"],
+  "explanation": "2-3 sentence description of THIS repository's architecture based only on the evidence above"
 }}
-
-IMPORTANT:
-- The "mermaid_diagram" MUST contain ONLY raw, valid Mermaid syntax. Do not wrap it in markdown backticks inside the string. Use 'graph TD' format.
-- DO NOT use unicode arrows like '—>'. Always use standard ASCII arrows like '-->'.
-- Keep node labels simple strings without weird brackets or quotes if possible.
-* Be accurate and do not hallucinate
-* If something is not found, return "Not detected"
-* Keep explanation short (3-4 lines max)
-
-Project Files:
-{file_list_str}
-
-Code Snippets:
-{code_snippets_str}
 """
 
     t0 = time.time()
@@ -448,7 +497,8 @@ Code Snippets:
                 {"role": "user", "content": prompt}
             ],
             response_format={"type": "json_object"},
-            max_tokens=1536,
+            max_tokens=768,
+            temperature=0.1,
         )
         raw = response.choices[0].message.content or "{}"
         data = json.loads(raw)
@@ -459,12 +509,20 @@ Code Snippets:
             "backend": "Analysis failed",
             "database": "Not detected",
             "apis": [],
-            "architecture_flow": [],
             "explanation": f"Error: {str(e)}"
         }
 
     elapsed = time.time() - t0
-    data["confidence"] = _confidence(bool(data.get("explanation")))
+
+    # ALWAYS use the verified mermaid diagram from architecture.py (not from Groq)
+    data["mermaid_diagram"] = verified_mermaid
+
+    # Attach evidence from local detection
+    data["layer_evidence"] = layer_evidence
+    data["db_evidence"] = db_evidence
+    data["tech_stack"] = tech_stack
+
+    data["confidence"] = 80 if data.get("explanation") else 30
     data["latency_ms"] = int(elapsed * 1000)
     return data
 
@@ -493,7 +551,8 @@ def scan_security_risks(files: dict[str, dict]) -> list[dict]:
     for path, data in files.items():
         # Only scan first 4KB to save massive regex CPU cycles
         content = data.get("content", "")[:4000]
-        if not content: continue
+        if not content:
+            continue
         for pattern, label, severity in COMPILED_PATTERNS:
             matches = pattern.findall(content)
             if matches:

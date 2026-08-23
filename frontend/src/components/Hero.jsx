@@ -91,20 +91,6 @@ export default function Hero({ onAnalyze, loading }) {
         animate="show"
         variants={container}
       >
-        <motion.div variants={item} className="hero-badge">
-          <div className="hero-badge-icon" aria-hidden>
-            🔭
-          </div>
-          <div className="hero-badge-text">
-            <div className="hero-badge-kicker">Inference</div>
-            <div className="hero-badge-title">
-              <span className="hero-badge-glow">Groq</span>
-              {' · '}
-              <span style={{ color: '#94a3b8' }}>Llama 3.1</span>
-              <span style={{ color: '#64748b' }}> — instant</span>
-            </div>
-          </div>
-        </motion.div>
 
         <motion.h1 variants={item} className="hero-title">
           <span className="hero-title-line1">CodeScope</span>

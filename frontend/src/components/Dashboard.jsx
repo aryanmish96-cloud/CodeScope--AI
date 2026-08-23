@@ -176,29 +176,61 @@ export default function Dashboard({
             <p style={{ margin: 0, color: 'var(--text-primary)', lineHeight: 1.5 }}>
               {aiArchitecture.explanation}
             </p>
+
+            {/* Evidence-backed component grid — phantom nodes show 'Not detected' */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <div style={{ background: 'rgba(59,130,246,0.08)', padding: '12px', borderRadius: 12, border: '1px solid rgba(59,130,246,0.15)' }}>
-                <div style={{ color: 'var(--text-muted)', fontSize: 10, marginBottom: 6, fontWeight: 600, textTransform: 'uppercase' }}>Frontend</div>
-                <div style={{ fontWeight: 700, color: '#93c5fd', fontSize: 14 }}>{aiArchitecture.frontend}</div>
-              </div>
-              <div style={{ background: 'rgba(124,58,237,0.08)', padding: '12px', borderRadius: 12, border: '1px solid rgba(124,58,237,0.15)' }}>
-                <div style={{ color: 'var(--text-muted)', fontSize: 10, marginBottom: 6, fontWeight: 600, textTransform: 'uppercase' }}>Backend</div>
-                <div style={{ fontWeight: 700, color: '#a78bfa', fontSize: 14 }}>{aiArchitecture.backend}</div>
-              </div>
-              <div style={{ background: 'rgba(16,185,129,0.08)', padding: '12px', borderRadius: 12, border: '1px solid rgba(16,185,129,0.15)' }}>
-                <div style={{ color: 'var(--text-muted)', fontSize: 10, marginBottom: 6, fontWeight: 600, textTransform: 'uppercase' }}>Database</div>
-                <div style={{ fontWeight: 700, color: '#6ee7b7', fontSize: 14 }}>{aiArchitecture.database}</div>
-              </div>
-              <div style={{ background: 'rgba(239,68,68,0.08)', padding: '12px', borderRadius: 12, border: '1px solid rgba(239,68,68,0.15)' }}>
-                <div style={{ color: 'var(--text-muted)', fontSize: 10, marginBottom: 6, fontWeight: 600, textTransform: 'uppercase' }}>API Layers</div>
-                <div style={{ fontWeight: 700, color: '#fca5a5', fontSize: 13 }}>
-                  {aiArchitecture.apis?.length > 0 ? aiArchitecture.apis.join(', ') : 'Not detected'}
-                </div>
-              </div>
+              {[
+                { key: 'frontend',   label: 'Frontend',   value: aiArchitecture.frontend,  color: '#93c5fd', bg: 'rgba(59,130,246,0.08)',   border: 'rgba(59,130,246,0.15)',   evidenceKey: 'frontend' },
+                { key: 'backend',    label: 'Backend',    value: aiArchitecture.backend,   color: '#a78bfa', bg: 'rgba(124,58,237,0.08)',   border: 'rgba(124,58,237,0.15)',   evidenceKey: 'backend' },
+                { key: 'database',   label: 'Database',   value: aiArchitecture.database,  color: '#6ee7b7', bg: 'rgba(16,185,129,0.08)',   border: 'rgba(16,185,129,0.15)',   evidenceKey: 'database' },
+                { key: 'apis',       label: 'API Routes', value: aiArchitecture.apis?.length > 0 ? aiArchitecture.apis.join(', ') : 'Not detected', color: '#fca5a5', bg: 'rgba(239,68,68,0.08)', border: 'rgba(239,68,68,0.15)', evidenceKey: null },
+              ].map(({ key, label, value, color, bg, border, evidenceKey }) => {
+                const isDetected = value && value !== 'Not detected'
+                const layerEvidence = evidenceKey && aiArchitecture.layer_evidence?.[evidenceKey]
+                const evidenceCount = Array.isArray(layerEvidence) ? layerEvidence.length : 0
+                return (
+                  <div key={key} style={{ background: bg, padding: '12px', borderRadius: 12, border: `1px solid ${border}`, opacity: isDetected ? 1 : 0.55 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <div style={{ color: 'var(--text-muted)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase' }}>{label}</div>
+                      {evidenceCount > 0 && (
+                        <span style={{
+                          fontSize: 9, padding: '1px 6px', borderRadius: 20, fontWeight: 700,
+                          background: 'rgba(16,185,129,0.15)', color: '#6ee7b7',
+                          border: '1px solid rgba(16,185,129,0.3)',
+                        }}>
+                          {evidenceCount} evidence
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontWeight: 700, color: isDetected ? color : 'var(--text-muted)', fontSize: isDetected ? 14 : 12, fontStyle: isDetected ? 'normal' : 'italic' }}>
+                      {isDetected ? value : '— Not detected'}
+                    </div>
+                    {/* Evidence file links */}
+                    {Array.isArray(layerEvidence) && layerEvidence.length > 0 && (
+                      <div style={{ marginTop: 6, fontSize: 9, color: 'rgba(147,197,253,0.6)', fontFamily: 'var(--font-mono)' }}>
+                        {layerEvidence.slice(0, 2).map((ev, ei) => (
+                          <div key={ei} style={{ marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            ✓ {ev.file?.split('/').pop()}{ev.line ? `:${ev.line}` : ''}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
+
+            {/* Verified mermaid diagram (generated from detected components only) */}
             {aiArchitecture.mermaid_diagram && (
               <div style={{ marginTop: 8 }}>
-                <div style={{ color: 'var(--text-muted)', fontSize: 10, marginBottom: 8, fontWeight: 600 }}>DIAGRAM</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                  <div style={{ color: 'var(--text-muted)', fontSize: 10, fontWeight: 600 }}>VERIFIED DIAGRAM</div>
+                  <span style={{
+                    fontSize: 8, padding: '1px 6px', borderRadius: 20, fontWeight: 700,
+                    background: 'rgba(16,185,129,0.15)', color: '#6ee7b7',
+                    border: '1px solid rgba(16,185,129,0.3)',
+                  }}>GROUNDED</span>
+                </div>
                 <MermaidGraph chart={aiArchitecture.mermaid_diagram} />
               </div>
             )}
