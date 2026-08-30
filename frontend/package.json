@@ -9,8 +9,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.112.4",
     "@xyflow/react": "^12.3.6",
     "axios": "^1.7.7",
+    "dagre": "^0.8.5",
     "framer-motion": "^11.3.19",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",

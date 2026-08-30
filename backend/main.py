@@ -797,6 +797,80 @@ def file_content(session_id: str, file_path: str):
         "content_truncated": bool(file_data.get("content_truncated", False)),
         "size_bytes": int(file_data.get("size_bytes", 0)),
     }
+# ── Graph Lazy-Loading APIs ───────────────────────────────────────────────────
+@api.get("/graph/overview")
+def get_graph_overview(session_id: str):
+    session = _sessions.get(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+        
+    graph = session["graph"]
+    # Overview returns repository and top-level modules
+    nodes = [n for n in graph["nodes"] if n["type"] in ["repository", "module"] and (n["parent_id"] is None or n["parent_id"] == "repository:root")]
+    
+    # We only return edges between these returned nodes
+    node_ids = set(n["id"] for n in nodes)
+    edges = [e for e in graph["edges"] if e["source"] in node_ids and e["target"] in node_ids]
+    
+    return {"nodes": nodes, "edges": edges}
+
+@api.get("/graph/nodes/{node_id:path}/children")
+def get_graph_node_children(session_id: str, node_id: str):
+    session = _sessions.get(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+        
+    graph = session["graph"]
+    children = [n for n in graph["nodes"] if n["parent_id"] == node_id]
+    
+    # Edges where both source and target are in the returned set (or involving the parent)
+    child_ids = set(n["id"] for n in children)
+    child_ids.add(node_id)
+    edges = [e for e in graph["edges"] if e["source"] in child_ids and e["target"] in child_ids]
+    
+    return {"nodes": children, "edges": edges}
+
+@api.get("/graph/nodes/{node_id:path}/dependencies")
+def get_graph_node_dependencies(session_id: str, node_id: str, hops: int = 1, direction: str = "both"):
+    session = _sessions.get(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+        
+    graph = session["graph"]
+    all_edges = graph["edges"]
+    
+    visited_nodes = {node_id}
+    result_edges = []
+    
+    current_frontier = {node_id}
+    
+    for _ in range(hops):
+        next_frontier = set()
+        for edge in all_edges:
+            if direction in ["both", "upstream"] and edge["target"] in current_frontier:
+                next_frontier.add(edge["source"])
+                result_edges.append(edge)
+            if direction in ["both", "downstream"] and edge["source"] in current_frontier:
+                next_frontier.add(edge["target"])
+                result_edges.append(edge)
+        
+        current_frontier = next_frontier - visited_nodes
+        visited_nodes.update(current_frontier)
+        if not current_frontier:
+            break
+            
+    # Include all nodes that are in the result edges
+    result_node_ids = set()
+    for e in result_edges:
+        result_node_ids.add(e["source"])
+        result_node_ids.add(e["target"])
+    
+    # Also include the queried node itself
+    result_node_ids.add(node_id)
+        
+    result_nodes = [n for n in graph["nodes"] if n["id"] in result_node_ids]
+    
+    return {"nodes": result_nodes, "edges": result_edges}
 
 
 app.include_router(api)

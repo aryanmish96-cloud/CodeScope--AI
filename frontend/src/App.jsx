@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Toaster, toast } from 'react-hot-toast'
 
@@ -11,18 +11,61 @@ import ChatAssistant from './components/ChatAssistant'
 import ReadmeModal from './components/ReadmeModal'
 import LoadingOverlay from './components/LoadingOverlay'
 import CodeViewer from './components/CodeViewer'
+import AuthPage from './components/AuthPage'
+import UserMenu from './components/UserMenu'
+import { AuthProvider, useAuth } from './context/AuthContext'
 
 import { startAnalyzeRepo, getAnalyzeStatus, getAnalyzeResult, summarizeRepo, analyzeArchitecture } from './api/client'
 import { generateCodeScopeReport } from './utils/generateReportPdf'
 
 // ── View tabs for the center panel ──────────────────────────────────
 const CENTER_TABS = [
-  { id: 'graph', label: '🔗 Graph' },
-  { id: 'dashboard', label: '📊 Dashboard' },
-  { id: 'code', label: '💻 Code' },
+  { id: 'graph',     label: 'Graph' },
+  { id: 'dashboard', label: 'Dashboard' },
+  { id: 'code',      label: 'Code' },
 ]
 
+// ── Logo SVG ─────────────────────────────────────────────────────────
+function LogoIcon({ size = 20 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 14 14" fill="none">
+      <circle cx="7" cy="7" r="2.5" fill="white" opacity="0.9"/>
+      <path d="M7 1.5C4 1.5 1.5 4 1.5 7" stroke="white" strokeWidth="1.5" strokeLinecap="round" opacity="0.5"/>
+      <path d="M7 12.5C10 12.5 12.5 10 12.5 7" stroke="white" strokeWidth="1.5" strokeLinecap="round" opacity="0.5"/>
+      <path d="M1.5 7C1.5 10 4 12.5 7 12.5" stroke="white" strokeWidth="1.5" strokeLinecap="round" opacity="0.25"/>
+      <path d="M12.5 7C12.5 4 10 1.5 7 1.5" stroke="white" strokeWidth="1.5" strokeLinecap="round" opacity="0.25"/>
+    </svg>
+  )
+}
+
+// ── Inner app (requires auth) ────────────────────────────────────────
+function AppInner() {
+  const { user, loading: authLoading } = useAuth()
+
+  if (authLoading) {
+    return (
+      <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-base)' }}>
+        <span className="auth-spinner" style={{ width: 28, height: 28, borderWidth: 3 }} />
+      </div>
+    )
+  }
+
+  if (!user) {
+    return <AuthPage />
+  }
+
+  return <AppShell />
+}
+
 export default function App() {
+  return (
+    <AuthProvider>
+      <AppInner />
+    </AuthProvider>
+  )
+}
+
+function AppShell() {
   const [view, setView] = useState('hero') // hero | explorer
   const [loading, setLoading] = useState(false)
   const [loadingMessage, setLoadingMessage] = useState('')
@@ -41,7 +84,7 @@ export default function App() {
   const [repoSummary, setRepoSummary] = useState(null)
   const [selectedFile, setSelectedFile] = useState(null)
   const [highlightRanges, setHighlightRanges] = useState([])
-  
+
   const [aiArchitecture, setAiArchitecture] = useState(null)
   const [aiArchLoading, setAiArchLoading] = useState(false)
   const [reportLoading, setReportLoading] = useState(false)
@@ -60,7 +103,7 @@ export default function App() {
       if (!jobId) throw new Error('Failed to start analysis job')
 
       let status = null
-      for (let i = 0; i < 600; i += 1) { // up to ~10 minutes
+      for (let i = 0; i < 600; i += 1) {
         status = await getAnalyzeStatus(jobId)
         if (status?.message) setLoadingMessage(status.message)
         if (status?.status === 'done') break
@@ -85,9 +128,8 @@ export default function App() {
       setRepoSummary(null)
       setAiArchitecture(null)
       setView('explorer')
-      toast.success(`✅ ${data.repo_name} analyzed!`, { duration: 3000 })
+      toast.success(`${data.repo_name} analyzed successfully`, { duration: 3000 })
 
-      // Fetch AI summary in background (same session_id as /api/analyze response)
       if (import.meta.env.DEV) {
         console.log('[session] analyze success, session_id=', data.session_id)
       }
@@ -104,7 +146,7 @@ export default function App() {
     } catch (err) {
       console.error(err)
       const msg = err?.response?.data?.detail || err.message || 'Analysis failed'
-      toast.error(`❌ ${msg}`, { duration: 5000 })
+      toast.error(msg, { duration: 5000 })
       setView('hero')
     } finally {
       setLoading(false)
@@ -168,7 +210,7 @@ export default function App() {
     try {
       const data = await analyzeArchitecture(sessionId)
       setAiArchitecture(data)
-      toast.success('Architecture analyzed by AI 🧠')
+      toast.success('Architecture analyzed by AI')
     } catch (err) {
       console.error(err)
       toast.error('AI Architecture analysis failed')
@@ -184,10 +226,12 @@ export default function App() {
         toastOptions={{
           style: {
             background: 'var(--bg-elevated)',
-            border: '1px solid var(--border)',
+            border: '1px solid var(--border-strong)',
             color: 'var(--text-primary)',
             fontFamily: 'var(--font-sans)',
             fontSize: 13,
+            borderRadius: 10,
+            boxShadow: 'var(--shadow-xl)',
           },
         }}
       />
@@ -200,7 +244,7 @@ export default function App() {
             key="hero"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            exit={{ opacity: 0, transition: { duration: 0.15 } }}
             style={{ height: '100vh', overflow: 'auto' }}
           >
             <Hero onAnalyze={handleAnalyze} loading={loading} />
@@ -210,82 +254,80 @@ export default function App() {
             key="explorer"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
+            transition={{ duration: 0.2 }}
             className="app-layout"
           >
-            {/* ── Top Header Bar ─────────────────────────────── */}
+            {/* ── Header ─────────────────────────────────────────── */}
             <header className="app-header">
-              {/* Logo */}
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                onClick={() => setView('hero')}
-                style={{
-                  background: 'none', border: 'none', cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', gap: 8,
-                  padding: '4px 8px', borderRadius: 8,
-                  color: 'var(--text-primary)',
-                }}
-              >
-                <span style={{ fontSize: 18 }}>🔭</span>
-                <span style={{ fontWeight: 700, fontSize: 15 }}>
-                  <span className="gradient-text">CodeScope</span>
-                  <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}> AI</span>
-                </span>
-              </motion.button>
-
-              <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
-
-              {/* Repo name */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 13 }}>📦</span>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: '#a78bfa', fontWeight: 600 }}>
-                  {repoName}
-                </span>
-                {architecture?.project_type && (
-                  <span className="badge badge-blue" style={{ fontSize: 10 }}>{architecture.project_type}</span>
-                )}
-              </div>
-
-              {/* Center tabs */}
-              <div style={{ marginLeft: 'auto', display: 'flex', gap: 4, alignItems: 'center' }}>
-                {CENTER_TABS.map((tab) => (
-                  <button
-                    key={tab.id}
-                    className={`tab-btn ${centerTab === tab.id ? 'active' : ''}`}
-                    onClick={() => setCenterTab(tab.id)}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-
-              {/* Actions */}
-              <div style={{ display: 'flex', gap: 8, marginLeft: 16 }}>
+              {/* Logo section */}
+              <div className="header-logo-section">
                 <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => setChatOpen(!chatOpen)}
-                  className="btn-ghost"
-                  style={{
-                    borderColor: chatOpen ? 'var(--accent-purple)' : 'var(--border)',
-                    color: chatOpen ? '#a78bfa' : 'var(--text-secondary)',
-                    background: chatOpen ? 'rgba(124,58,237,0.1)' : 'transparent',
-                  }}
-                >
-                  💬 Chat
-                </motion.button>
-
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
+                  className="wordmark"
                   onClick={() => setView('hero')}
-                  className="btn-ghost"
+                  whileHover={{ opacity: 0.8 }}
+                  whileTap={{ scale: 0.97 }}
+                  style={{ background: 'none', border: 'none' }}
                 >
-                  ← New Repo
+                  <div className="wordmark-icon">
+                    <LogoIcon size={14} />
+                  </div>
+                  <span className="wordmark-text">CodeScope <span>AI</span></span>
                 </motion.button>
+              </div>
+
+              {/* Main section: repo info + tabs */}
+              <div className="header-main-section">
+                {/* Repo tag */}
+                {repoName && (
+                  <div className="repo-tag" style={{ marginRight: 16 }}>
+                    <span className="repo-dot" />
+                    {repoName}
+                    {architecture?.project_type && (
+                      <span className="badge badge-purple" style={{ marginLeft: 4, fontSize: 10 }}>
+                        {architecture.project_type}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* Center tabs */}
+                <div className="tab-bar" style={{ marginLeft: 8 }}>
+                  {CENTER_TABS.map((tab) => (
+                    <button
+                      key={tab.id}
+                      className={`tab-btn ${centerTab === tab.id ? 'active' : ''}`}
+                      onClick={() => setCenterTab(tab.id)}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Actions section */}
+              <div className="header-actions-section">
+                <button
+                  className={`btn-ghost ${chatOpen ? 'active' : ''}`}
+                  onClick={() => setChatOpen(!chatOpen)}
+                  style={{ fontSize: 13 }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                  </svg>
+                  Chat
+                </button>
+                <button
+                  className="btn-ghost"
+                  onClick={() => setView('hero')}
+                  style={{ fontSize: 13 }}
+                >
+                  ← New
+                </button>
+                <UserMenu />
               </div>
             </header>
 
-            {/* ── Left Panel: File Explorer ───────────────────── */}
+            {/* ── Left Panel: File Explorer ───────────────────────── */}
             <aside className="panel-left">
               <FileExplorer
                 tree={tree}
@@ -295,7 +337,7 @@ export default function App() {
               />
             </aside>
 
-            {/* ── Center Panel: Graph / Dashboard ─────────────── */}
+            {/* ── Center Panel: Graph / Dashboard / Code ───────────── */}
             <main className="panel-center">
               <AnimatePresence mode="wait">
                 {centerTab === 'graph' ? (
@@ -309,6 +351,7 @@ export default function App() {
                   >
                     <DependencyGraph
                       graphData={graphData}
+                      sessionId={sessionId}
                       onNodeClick={handleGraphNodeClick}
                       metrics={graphData?.metrics}
                     />
@@ -354,7 +397,7 @@ export default function App() {
               </AnimatePresence>
             </main>
 
-            {/* ── Right Panel: AI Explanation ─────────────────── */}
+            {/* ── Right Panel: AI Explanation ─────────────────────── */}
             <aside className="panel-right">
               <AIPanel
                 sessionId={sessionId}
@@ -364,29 +407,30 @@ export default function App() {
               />
             </aside>
 
-            {/* ── Floating chat button ─────────────────────────── */}
+            {/* ── Floating chat FAB ────────────────────────────────── */}
             <motion.button
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.95 }}
+              className={`fab-chat ${chatOpen ? 'open' : ''}`}
               onClick={() => setChatOpen(!chatOpen)}
-              className="pulse-glow"
-              style={{
-                position: 'fixed', bottom: 24, right: 24, width: 52, height: 52,
-                borderRadius: '50%',
-                background: 'linear-gradient(135deg, #7c3aed, #3b82f6)',
-                border: '2px solid rgba(124,58,237,0.4)',
-                color: '#fff', fontSize: 22,
-                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                zIndex: 999,
-              }}
+              whileHover={{ scale: 1.08 }}
+              whileTap={{ scale: 0.94 }}
+              aria-label="Toggle chat"
             >
-              {chatOpen ? '×' : '💬'}
+              {chatOpen ? (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                  <line x1="18" y1="6" x2="6" y2="18"/>
+                  <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              ) : (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                </svg>
+              )}
             </motion.button>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* ── Floating overlays ────────────────────────────────────── */}
+      {/* ── Overlays ─────────────────────────────────────────────────── */}
       <ChatAssistant
         sessionId={sessionId}
         open={chatOpen}

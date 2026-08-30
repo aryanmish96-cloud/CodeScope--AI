@@ -1,51 +1,74 @@
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import MermaidGraph from './MermaidGraph'
 
-const SEVERITY_COLORS = {
-  critical: { bg: '#ef444420', border: '#ef444440', text: '#fca5a5', badge: '#ef4444' },
-  high:     { bg: '#f9731620', border: '#f9731640', text: '#fdba74', badge: '#f97316' },
-  medium:   { bg: '#eab30820', border: '#eab30840', text: '#fde047', badge: '#eab308' },
-  low:      { bg: '#6b728020', border: '#6b728040', text: '#9ca3af', badge: '#6b7280' },
+const SEV_STYLE = {
+  critical: { dot: '#ef4444', text: '#fca5a5', label: 'Critical' },
+  high:     { dot: '#f97316', text: '#fdba74', label: 'High' },
+  medium:   { dot: '#eab308', text: '#fde047', label: 'Medium' },
+  low:      { dot: '#6b7280', text: '#9ca3af', label: 'Low' },
 }
 
-function ArchitectureFlow({ steps }) {
-  if (!steps?.length) return null
+function SectionHeader({ children, action }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-      {steps.map((step, i) => (
-        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <div style={{
-            padding: '5px 12px', borderRadius: 20,
-            background: 'rgba(124,58,237,0.1)',
-            border: '1px solid rgba(124,58,237,0.2)',
-            fontSize: 12, color: 'var(--text-primary)',
-            display: 'flex', alignItems: 'center', gap: 5,
-          }}>
-            <span>{step.icon}</span>
-            <span>{step.label}</span>
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      marginBottom: 10,
+    }}>
+      <span className="section-label">{children}</span>
+      {action}
+    </div>
+  )
+}
+
+function StatGrid({ items }) {
+  return (
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: '1fr 1fr',
+      gap: 1,
+      background: 'var(--border)',
+      border: '1px solid var(--border)',
+      borderRadius: 'var(--radius-lg)',
+      overflow: 'hidden',
+      marginBottom: 16,
+    }}>
+      {items.map(({ label, value, color }, i) => (
+        <div
+          key={i}
+          style={{
+            background: 'var(--bg-surface)',
+            padding: '14px 14px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4,
+          }}
+        >
+          <div style={{ fontSize: 20, fontWeight: 700, color: color || 'var(--text-primary)', letterSpacing: '-0.03em', fontFamily: 'var(--font-sans)' }}>
+            {value}
           </div>
-          {i < steps.length - 1 && (
-            <span style={{ color: 'var(--text-muted)', fontSize: 14 }}>→</span>
-          )}
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            {label}
+          </div>
         </div>
       ))}
     </div>
   )
 }
 
-function MetricStat({ label, value, color, icon }) {
+function ArchitectureFlow({ steps }) {
+  if (!steps?.length) return null
   return (
-    <motion.div
-      whileHover={{ scale: 1.03 }}
-      className="metric-card"
-      style={{ textAlign: 'center' }}
-    >
-      <div style={{ fontSize: 24, marginBottom: 4 }}>{icon}</div>
-      <div style={{ fontSize: 22, fontWeight: 700, color: color || 'var(--text-primary)' }}>
-        {value}
-      </div>
-      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{label}</div>
-    </motion.div>
+    <div className="arch-flow">
+      {steps.map((step, i) => (
+        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div className="arch-step">
+            <span>{step.icon}</span>
+            <span>{step.label}</span>
+          </div>
+          {i < steps.length - 1 && <span className="arch-arrow">›</span>}
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -63,9 +86,10 @@ export default function Dashboard({
 }) {
   if (!stats || !architecture) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', flexDirection: 'column', gap: 12, color: 'var(--text-muted)' }}>
-        <span style={{ fontSize: 40 }}>📊</span>
-        <span>Analyze a repo to see the dashboard</span>
+      <div className="empty-state">
+        <div className="empty-state-icon">📊</div>
+        <div className="empty-state-title">No analysis yet</div>
+        <div className="empty-state-desc">Analyze a repository to see its dashboard</div>
       </div>
     )
   }
@@ -75,66 +99,73 @@ export default function Dashboard({
     return acc
   }, {}) || {}
 
-  const complexityLabel = graphMetrics?.avg_complexity >= 6 ? 'High' : graphMetrics?.avg_complexity >= 3 ? 'Medium' : 'Low'
-  const complexityColor = graphMetrics?.avg_complexity >= 6 ? '#ef4444' : graphMetrics?.avg_complexity >= 3 ? '#f97316' : '#10b981'
+  const complexityLabel = graphMetrics?.avg_complexity >= 6 ? 'High' : graphMetrics?.avg_complexity >= 3 ? 'Med' : 'Low'
+  const complexityColor = graphMetrics?.avg_complexity >= 6 ? '#ef4444' : graphMetrics?.avg_complexity >= 3 ? '#f97316' : '#22c55e'
+
+  const projectIcon = architecture.project_type?.includes('Full') ? '🏗️'
+    : architecture.project_type?.includes('Frontend') ? '🎨'
+    : architecture.project_type?.includes('Backend') ? '⚙️' : '📦'
 
   return (
-    <div style={{ overflowY: 'auto', height: '100%', padding: 20 }}>
-      {/* Project type banner */}
+    <div style={{ overflowY: 'auto', height: '100%', padding: '16px 16px 80px' }}>
+
+      {/* ── Project type banner ─────────────────────────────── */}
       <motion.div
-        initial={{ opacity: 0, y: -10 }}
+        initial={{ opacity: 0, y: -8 }}
         animate={{ opacity: 1, y: 0 }}
         style={{
-          padding: '14px 18px',
-          borderRadius: 14,
-          background: 'linear-gradient(135deg, rgba(124,58,237,0.15) 0%, rgba(59,130,246,0.1) 100%)',
-          border: '1px solid rgba(124,58,237,0.25)',
-          marginBottom: 20,
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '12px 14px',
+          borderRadius: 'var(--radius-lg)',
+          background: 'var(--bg-surface)',
+          border: '1px solid var(--border)',
+          marginBottom: 16,
         }}
       >
         <div>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 }}>PROJECT TYPE</div>
-          <div style={{ fontSize: 16, fontWeight: 700, marginTop: 2 }}>{architecture.project_type}</div>
+          <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>
+            Project Type
+          </div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
+            {architecture.project_type}
+          </div>
+          {stats.git?.branch && (
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3, fontFamily: 'var(--font-mono)' }}>
+              <span style={{ color: 'var(--text-accent)' }}>{stats.git.branch}</span>
+              {stats.git.contributor_count > 0 && ` · ${stats.git.contributor_count} contributor${stats.git.contributor_count > 1 ? 's' : ''}`}
+            </div>
+          )}
         </div>
-        <div style={{ fontSize: 32 }}>
-          {architecture.project_type?.includes('Full') ? '🏗️' :
-           architecture.project_type?.includes('Frontend') ? '🎨' :
-           architecture.project_type?.includes('Backend') ? '⚙️' : '📦'}
-        </div>
+        <span style={{ fontSize: 28, opacity: 0.7 }}>{projectIcon}</span>
       </motion.div>
 
-      {/* Key metrics grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
-        <MetricStat icon="📁" label="Total Files" value={stats.file_count?.toLocaleString()} color="#a78bfa" />
-        <MetricStat icon="📝" label="Lines of Code" value={stats.total_lines?.toLocaleString()} color="#93c5fd" />
-        <MetricStat icon="🔗" label="Dependencies" value={graphMetrics?.total_edges || 0} color="#6ee7b7" />
-        <MetricStat icon="🌀" label="Complexity" value={complexityLabel} color={complexityColor} />
-      </div>
+      {/* ── Key metrics ─────────────────────────────────────── */}
+      <StatGrid items={[
+        { label: 'Files',        value: stats.file_count?.toLocaleString(),           color: '#818cf8' },
+        { label: 'Lines of Code',value: stats.total_lines?.toLocaleString(),           color: '#93c5fd' },
+        { label: 'Dependencies', value: graphMetrics?.total_edges || 0,               color: '#86efac' },
+        { label: 'Complexity',   value: complexityLabel,                               color: complexityColor },
+      ]} />
 
-      {/* Tech Stack */}
+      {/* ── Tech stack ──────────────────────────────────────── */}
       {architecture.tech_stack?.length > 0 && (
-        <div className="metric-card" style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, marginBottom: 10 }}>🛠️ TECH STACK</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        <div className="metric-card" style={{ marginBottom: 12 }}>
+          <SectionHeader>Tech Stack</SectionHeader>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
             {architecture.tech_stack.map((tech, i) => (
-              <motion.span
-                key={i}
-                whileHover={{ scale: 1.05 }}
-                className="badge badge-purple"
-              >
+              <span key={i} className="badge badge-purple" style={{ fontFamily: 'var(--font-mono)' }}>
                 {tech}
-              </motion.span>
+              </span>
             ))}
           </div>
         </div>
       )}
 
-      {/* Databases */}
+      {/* ── Databases ────────────────────────────────────────── */}
       {architecture.databases?.length > 0 && (
-        <div className="metric-card" style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, marginBottom: 10 }}>🗄️ DATABASES</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        <div className="metric-card" style={{ marginBottom: 12 }}>
+          <SectionHeader>Databases</SectionHeader>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
             {architecture.databases.map((db, i) => (
               <span key={i} className="badge badge-blue">{db}</span>
             ))}
@@ -142,72 +173,90 @@ export default function Dashboard({
         </div>
       )}
 
-      {/* Architecture flow */}
+      {/* ── Architecture flow ────────────────────────────────── */}
       {architecture.architecture_flow?.length > 0 && (
-        <div className="metric-card" style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, marginBottom: 10 }}>🔄 STATIC ARCHITECTURE FLOW</div>
+        <div className="metric-card" style={{ marginBottom: 12 }}>
+          <SectionHeader>Architecture Flow</SectionHeader>
           <ArchitectureFlow steps={architecture.architecture_flow} />
         </div>
       )}
 
-      {/* AI Deep Architecture Analysis */}
-      <div className="metric-card" style={{ marginBottom: 16, border: '1px solid rgba(124,58,237,0.3)', background: 'linear-gradient(180deg, rgba(124,58,237,0.05) 0%, transparent 100%)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 18 }}>🧠</span>
-            <div style={{ fontSize: 13, color: '#a78bfa', fontWeight: 700, letterSpacing: '0.02em' }}>AI DEEP ARCHITECTURE MAP</div>
-          </div>
-          {!aiArchitecture && (
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={onAnalyzeArchitecture}
-              disabled={aiArchLoading}
-              className="badge badge-purple"
-              style={{ padding: '6px 12px', fontSize: 10, cursor: aiArchLoading ? 'wait' : 'pointer', border: 'none', background: 'rgba(124,58,237,0.2)' }}
-            >
-              {aiArchLoading ? 'Analyzing...' : '✨ Run Groq AI Analysis'}
-            </motion.button>
-          )}
-        </div>
+      {/* ── AI Deep Architecture ─────────────────────────────── */}
+      <div className="metric-card" style={{
+        marginBottom: 12,
+        borderColor: aiArchitecture ? 'var(--accent-border)' : 'var(--border)',
+      }}>
+        <SectionHeader
+          action={
+            !aiArchitecture && (
+              <button
+                onClick={onAnalyzeArchitecture}
+                disabled={aiArchLoading}
+                className="btn-ghost"
+                style={{ fontSize: 11, padding: '3px 10px', height: 'auto' }}
+              >
+                {aiArchLoading ? (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <span style={{ display: 'inline-block', animation: 'spin 0.8s linear infinite', fontSize: 12 }}>↻</span>
+                    Analyzing...
+                  </span>
+                ) : '✦ Run AI Analysis'}
+              </button>
+            )
+          }
+        >
+          AI Architecture
+        </SectionHeader>
+
+        {!aiArchitecture && !aiArchLoading && (
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            Run Groq AI analysis for a deep architecture breakdown with evidence-backed component detection.
+          </p>
+        )}
 
         {aiArchitecture && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, fontSize: 13 }}>
-            <p style={{ margin: 0, color: 'var(--text-primary)', lineHeight: 1.5 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.65, margin: 0 }}>
               {aiArchitecture.explanation}
             </p>
 
-            {/* Evidence-backed component grid — phantom nodes show 'Not detected' */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 4 }}>
               {[
-                { key: 'frontend',   label: 'Frontend',   value: aiArchitecture.frontend,  color: '#93c5fd', bg: 'rgba(59,130,246,0.08)',   border: 'rgba(59,130,246,0.15)',   evidenceKey: 'frontend' },
-                { key: 'backend',    label: 'Backend',    value: aiArchitecture.backend,   color: '#a78bfa', bg: 'rgba(124,58,237,0.08)',   border: 'rgba(124,58,237,0.15)',   evidenceKey: 'backend' },
-                { key: 'database',   label: 'Database',   value: aiArchitecture.database,  color: '#6ee7b7', bg: 'rgba(16,185,129,0.08)',   border: 'rgba(16,185,129,0.15)',   evidenceKey: 'database' },
-                { key: 'apis',       label: 'API Routes', value: aiArchitecture.apis?.length > 0 ? aiArchitecture.apis.join(', ') : 'Not detected', color: '#fca5a5', bg: 'rgba(239,68,68,0.08)', border: 'rgba(239,68,68,0.15)', evidenceKey: null },
-              ].map(({ key, label, value, color, bg, border, evidenceKey }) => {
+                { key: 'frontend', label: 'Frontend', value: aiArchitecture.frontend, color: '#93c5fd', evidenceKey: 'frontend' },
+                { key: 'backend',  label: 'Backend',  value: aiArchitecture.backend,  color: '#a78bfa', evidenceKey: 'backend' },
+                { key: 'database', label: 'Database', value: aiArchitecture.database, color: '#86efac', evidenceKey: 'database' },
+                { key: 'apis',     label: 'API Routes', value: aiArchitecture.apis?.length > 0 ? aiArchitecture.apis.join(', ') : null, color: '#fca5a5', evidenceKey: null },
+              ].map(({ key, label, value, color, evidenceKey }) => {
                 const isDetected = value && value !== 'Not detected'
                 const layerEvidence = evidenceKey && aiArchitecture.layer_evidence?.[evidenceKey]
                 const evidenceCount = Array.isArray(layerEvidence) ? layerEvidence.length : 0
                 return (
-                  <div key={key} style={{ background: bg, padding: '12px', borderRadius: 12, border: `1px solid ${border}`, opacity: isDetected ? 1 : 0.55 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                      <div style={{ color: 'var(--text-muted)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase' }}>{label}</div>
+                  <div key={key} style={{
+                    padding: '10px 12px',
+                    borderRadius: 'var(--radius-md)',
+                    background: 'var(--bg-elevated)',
+                    border: '1px solid var(--border)',
+                    opacity: isDetected ? 1 : 0.5,
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                      <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--text-muted)' }}>
+                        {label}
+                      </div>
                       {evidenceCount > 0 && (
-                        <span style={{
-                          fontSize: 9, padding: '1px 6px', borderRadius: 20, fontWeight: 700,
-                          background: 'rgba(16,185,129,0.15)', color: '#6ee7b7',
-                          border: '1px solid rgba(16,185,129,0.3)',
-                        }}>
-                          {evidenceCount} evidence
+                        <span className="badge badge-green" style={{ fontSize: 9, padding: '1px 5px' }}>
+                          {evidenceCount}
                         </span>
                       )}
                     </div>
-                    <div style={{ fontWeight: 700, color: isDetected ? color : 'var(--text-muted)', fontSize: isDetected ? 14 : 12, fontStyle: isDetected ? 'normal' : 'italic' }}>
+                    <div style={{
+                      fontWeight: 600, fontSize: isDetected ? 13 : 11,
+                      color: isDetected ? color : 'var(--text-muted)',
+                      fontStyle: isDetected ? 'normal' : 'italic',
+                    }}>
                       {isDetected ? value : '— Not detected'}
                     </div>
-                    {/* Evidence file links */}
                     {Array.isArray(layerEvidence) && layerEvidence.length > 0 && (
-                      <div style={{ marginTop: 6, fontSize: 9, color: 'rgba(147,197,253,0.6)', fontFamily: 'var(--font-mono)' }}>
+                      <div style={{ marginTop: 4, fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
                         {layerEvidence.slice(0, 2).map((ev, ei) => (
                           <div key={ei} style={{ marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             ✓ {ev.file?.split('/').pop()}{ev.line ? `:${ev.line}` : ''}
@@ -220,16 +269,11 @@ export default function Dashboard({
               })}
             </div>
 
-            {/* Verified mermaid diagram (generated from detected components only) */}
             {aiArchitecture.mermaid_diagram && (
-              <div style={{ marginTop: 8 }}>
+              <div style={{ marginTop: 4 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                  <div style={{ color: 'var(--text-muted)', fontSize: 10, fontWeight: 600 }}>VERIFIED DIAGRAM</div>
-                  <span style={{
-                    fontSize: 8, padding: '1px 6px', borderRadius: 20, fontWeight: 700,
-                    background: 'rgba(16,185,129,0.15)', color: '#6ee7b7',
-                    border: '1px solid rgba(16,185,129,0.3)',
-                  }}>GROUNDED</span>
+                  <span className="section-label">Verified Diagram</span>
+                  <span className="badge badge-green" style={{ fontSize: 9 }}>Grounded</span>
                 </div>
                 <MermaidGraph chart={aiArchitecture.mermaid_diagram} />
               </div>
@@ -238,118 +282,120 @@ export default function Dashboard({
         )}
       </div>
 
-      {/* Important files */}
+      {/* ── Key files ────────────────────────────────────────── */}
       {graphMetrics?.important_files?.length > 0 && (
-        <div className="metric-card" style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, marginBottom: 10 }}>⭐ KEY FILES</div>
-          {graphMetrics.important_files.map((f, i) => (
-            <div key={i} style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              padding: '5px 0', borderBottom: i < graphMetrics.important_files.length - 1 ? '1px solid var(--border)' : 'none',
-            }}>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '70%' }}>
-                {f.path}
-              </span>
-              <span className="badge badge-orange" style={{ fontSize: 9, flexShrink: 0 }}>
-                cx {f.complexity}
-              </span>
-            </div>
-          ))}
+        <div className="metric-card" style={{ marginBottom: 12 }}>
+          <SectionHeader>Key Files</SectionHeader>
+          <div>
+            {graphMetrics.important_files.map((f, i) => (
+              <div key={i} className="stat-row">
+                <span style={{
+                  fontFamily: 'var(--font-mono)', fontSize: 11.5,
+                  color: 'var(--text-secondary)',
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '75%',
+                }}>
+                  {f.path}
+                </span>
+                <span className="badge badge-orange" style={{ fontSize: 9, flexShrink: 0 }}>
+                  cx {f.complexity}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
-      {/* Circular dependencies */}
+      {/* ── Circular dependencies ────────────────────────────── */}
       {graphMetrics?.circular_dependency_count > 0 && (
-        <div className="metric-card" style={{ marginBottom: 16, borderColor: 'rgba(239,68,68,0.3)' }}>
-          <div style={{ fontSize: 11, color: '#fca5a5', fontWeight: 600, marginBottom: 10 }}>
-            ⚠️ CIRCULAR DEPENDENCIES ({graphMetrics.circular_dependency_count})
-          </div>
+        <div className="metric-card" style={{ marginBottom: 12, borderColor: 'rgba(239,68,68,0.25)' }}>
+          <SectionHeader>
+            Circular Dependencies
+            <span className="badge badge-red" style={{ fontSize: 10 }}>{graphMetrics.circular_dependency_count}</span>
+          </SectionHeader>
           {graphMetrics.circular_dependencies?.slice(0, 3).map((cycle, i) => (
-            <div key={i} style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', padding: '2px 0' }}>
+            <div key={i} style={{
+              fontSize: 11, color: 'var(--text-muted)',
+              fontFamily: 'var(--font-mono)',
+              padding: '3px 0',
+              borderBottom: i < 2 ? '1px solid var(--border)' : 'none',
+            }}>
               {cycle.join(' → ')}
             </div>
           ))}
         </div>
       )}
 
-      {/* Security Risks */}
+      {/* ── Security risks ───────────────────────────────────── */}
       {securityRisks?.length > 0 && (
-        <div className="metric-card" style={{ marginBottom: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 }}>🛡️ RISK RADAR</div>
-            <div style={{ display: 'flex', gap: 4 }}>
-              {Object.entries(riskCounts).map(([sev, count]) => (
-                <span key={sev} className={`badge badge-${sev === 'critical' || sev === 'high' ? 'red' : sev === 'medium' ? 'orange' : 'gray'}`} style={{ fontSize: 9 }}>
-                  {count} {sev}
-                </span>
-              ))}
-            </div>
-          </div>
-          {securityRisks.slice(0, 6).map((risk, i) => {
-            const c = SEVERITY_COLORS[risk.severity] || SEVERITY_COLORS.low
-            return (
-              <div key={i} style={{
-                padding: '6px 10px', borderRadius: 6, marginBottom: 6,
-                background: c.bg, border: `1px solid ${c.border}`,
-                display: 'flex', flexDirection: 'column', gap: 2,
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: c.text }}>{risk.risk}</span>
-                  <span style={{ fontSize: 9, color: c.badge, textTransform: 'uppercase', fontWeight: 700 }}>{risk.severity}</span>
-                </div>
-                <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                  {risk.file} · {risk.occurrences}×
-                </span>
+        <div className="metric-card" style={{ marginBottom: 12 }}>
+          <SectionHeader
+            action={
+              <div style={{ display: 'flex', gap: 4 }}>
+                {Object.entries(riskCounts).map(([sev, count]) => (
+                  <span
+                    key={sev}
+                    className={`badge badge-${sev === 'critical' || sev === 'high' ? 'red' : sev === 'medium' ? 'yellow' : 'gray'}`}
+                    style={{ fontSize: 10 }}
+                  >
+                    {count} {sev}
+                  </span>
+                ))}
               </div>
-            )
-          })}
+            }
+          >
+            Risk Radar
+          </SectionHeader>
+          <div>
+            {securityRisks.slice(0, 6).map((risk, i) => {
+              const s = SEV_STYLE[risk.severity] || SEV_STYLE.low
+              return (
+                <div key={i} className="risk-row">
+                  <span className="risk-dot" style={{ background: s.dot, marginTop: 5 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>
+                      {risk.risk}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                      {risk.file} · {risk.occurrences}×
+                    </div>
+                  </div>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: s.text, flexShrink: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    {risk.severity}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
         </div>
       )}
 
-      {/* PDF report + README */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 8 }}>
-        <motion.button
-          whileHover={{ scale: reportLoading ? 1 : 1.02 }}
-          whileTap={{ scale: reportLoading ? 1 : 0.98 }}
+      {/* ── Actions (fixed bottom strip) ─────────────────────── */}
+      <div style={{
+        position: 'sticky',
+        bottom: -80,
+        margin: '0 -16px -80px',
+        padding: '12px 16px',
+        background: 'var(--bg-canvas)',
+        borderTop: '1px solid var(--border)',
+        display: 'flex',
+        gap: 8,
+      }}>
+        <button
           onClick={onGenerateReport}
           disabled={reportLoading}
-          type="button"
-          style={{
-            width: '100%',
-            justifyContent: 'center',
-            padding: '12px 16px',
-            borderRadius: 12,
-            border: '1px solid rgba(124,58,237,0.45)',
-            background: 'linear-gradient(135deg, rgba(124,58,237,0.25), rgba(59,130,246,0.15))',
-            color: '#e2e8f0',
-            fontWeight: 700,
-            fontSize: 13,
-            cursor: reportLoading ? 'wait' : 'pointer',
-            fontFamily: 'var(--font-sans)',
-            opacity: reportLoading ? 0.75 : 1,
-          }}
+          className="btn-ghost"
+          style={{ flex: 1, justifyContent: 'center', fontSize: 12 }}
         >
-          {reportLoading ? '⏳ Building PDF…' : '📑 Generate Report (PDF)'}
-        </motion.button>
-        <motion.button
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
+          {reportLoading ? '⏳ Building…' : '📑 PDF Report'}
+        </button>
+        <button
           onClick={onGenerateReadme}
           className="btn-primary"
-          type="button"
-          style={{ width: '100%', justifyContent: 'center' }}
+          style={{ flex: 1, justifyContent: 'center', fontSize: 12 }}
         >
-          📄 Generate README
-        </motion.button>
+          📄 README
+        </button>
       </div>
-
-      {/* Git info */}
-      {stats.git?.branch && (
-        <div style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center' }}>
-          Branch: <span style={{ color: '#a78bfa' }}>{stats.git.branch}</span>
-          {stats.git.contributor_count > 0 && ` · ${stats.git.contributor_count} contributor${stats.git.contributor_count > 1 ? 's' : ''}`}
-        </div>
-      )}
     </div>
   )
 }

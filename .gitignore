@@ -8,6 +8,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 .env
+.env.*
+*.env
 venv/
 .venv/
 env/
@@ -22,3 +24,6 @@ Thumbs.db
 
 # Other temp backend data
 temp_repos/
+
+# MCP config (contains secrets/tokens — never commit)
+.agents/mcp_config.json

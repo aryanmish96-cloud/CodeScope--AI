@@ -75,4 +75,14 @@ export const simulateExecution = (sessionId, filePath) =>
 export const getFileContent = (sessionId, filePath) =>
   api.get('/file-content', { params: { session_id: sessionId, file_path: filePath } }).then((r) => r.data)
 
+// ── Graph APIs ────────────────────────────────────────────────────────────────
+export const getGraphOverview = (sessionId) =>
+  api.get('/graph/overview', { params: { session_id: sessionId } }).then((r) => r.data)
+
+export const getGraphNodeChildren = (sessionId, nodeId) =>
+  api.get(`/graph/nodes/${encodeURIComponent(nodeId)}/children`, { params: { session_id: sessionId } }).then((r) => r.data)
+
+export const getGraphNodeDependencies = (sessionId, nodeId, hops = 1, direction = 'both') =>
+  api.get(`/graph/nodes/${encodeURIComponent(nodeId)}/dependencies`, { params: { session_id: sessionId, hops, direction } }).then((r) => r.data)
+
 export default api

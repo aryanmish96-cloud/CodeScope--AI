@@ -20,7 +20,7 @@ MAX_TOTAL_LINES = 1000000
 MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024  # hard cap per file for parse safety
 MAX_FILE_READ_BYTES = 512 * 1024  # read preview only for speed
 MAX_FILE_CONTENT_CHARS = 20000  # content sent to UI/AI
-PARSE_CACHE_VERSION = 2
+PARSE_CACHE_VERSION = 3
 
 SKIP_DIRS = {
     ".git", "node_modules", "dist", "build", "__pycache__", ".venv", "venv",
@@ -71,6 +71,24 @@ def _extract_imports(suffix: str, content: str) -> List[str]:
     return imports
 
 # ── parser helpers ────────────────────────────────────────────────────────────────
+
+def _classify_file(path: str, name: str) -> str:
+    path_lower = path.lower()
+    
+    if any(p in path_lower for p in ["/test/", "/tests/", "__tests__", "spec", ".test.", ".spec."]) or path_lower.startswith("test/") or path_lower.startswith("tests/"):
+        return "TEST"
+    if any(p in path_lower for p in ["/docs/", "/documentation/", ".md", "readme"]) or path_lower.startswith("docs/"):
+        return "DOCUMENTATION"
+    if any(p in path_lower for p in ["/examples/", "/tutorial/", "/demo/"]) or path_lower.startswith("examples/"):
+        return "EXAMPLE"
+    if name in ALWAYS_INCLUDE_FILES or path_lower.endswith(".lock"):
+        return "MANIFEST"
+    if any(p in path_lower for p in ["/config", ".config", ".yml", ".yaml", "docker-compose", "dockerfile"]) or path_lower.startswith(".github/"):
+        return "CONFIG"
+    if any(p in path_lower for p in ["/assets/", "/public/", "/static/", "/images/"]) or path_lower.startswith("public/"):
+        return "ASSET"
+        
+    return "SOURCE"
 
 def _should_skip_dir(name: str) -> bool:
     return name in SKIP_DIRS or name.endswith(".egg-info")
@@ -157,11 +175,14 @@ def _traverse_and_parse(root_path: Path, stats: Dict[str, Any]) -> Tuple[Dict[st
                 raise RepoTooLargeError(f"Exceeded {MAX_TOTAL_LINES} lines.")
 
             imports = _extract_imports(suffix, content)
+            category = _classify_file(rel_path, name)
+            
             file_data = {
                 "path": rel_path,
                 "name": name,
                 "extension": suffix.lstrip("."),
                 "lines": lines,
+                "category": category,
                 "content": content,
                 "imports": imports,
             }

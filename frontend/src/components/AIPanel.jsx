@@ -4,48 +4,55 @@ import { explainFile } from '../api/client'
 import ExecutionSimulator from './ExecutionSimulator'
 
 function ConfidenceBar({ value }) {
-  const color = value >= 75 ? '#10b981' : value >= 50 ? '#f97316' : '#ef4444'
+  const color = value >= 75 ? 'var(--green)' : value >= 50 ? 'var(--orange)' : 'var(--red)'
   return (
-    <div style={{ marginTop: 4 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 11 }}>
-        <span style={{ color: 'var(--text-muted)' }}>AI Confidence</span>
+    <div style={{ marginTop: 8 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5, fontSize: 11 }}>
+        <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>AI Confidence</span>
         <span style={{ color, fontWeight: 600 }}>{value}%</span>
       </div>
-      <div className="confidence-bar">
+      <div className="progress-bar-track">
         <motion.div
-          className="confidence-fill"
+          className="progress-bar-fill"
           initial={{ width: 0 }}
           animate={{ width: `${value}%` }}
-          style={{ background: `linear-gradient(90deg, ${color}, #7c3aed)` }}
+          transition={{ duration: 0.7, ease: 'easeOut' }}
+          style={{ background: color }}
         />
       </div>
     </div>
   )
 }
 
-function SecurityFlag({ flag, severity }) {
-  const colors = { critical: '#ef4444', high: '#f97316', medium: '#eab308', low: '#6b7280' }
+function FileBreadcrumb({ path }) {
+  if (!path) return null
+  const parts = path.split('/')
+  const file = parts.pop()
   return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 8,
-      padding: '6px 10px', borderRadius: 6,
-      background: `${colors[severity]}15`,
-      border: `1px solid ${colors[severity]}30`,
-      fontSize: 12, marginBottom: 4,
-    }}>
-      <span style={{ color: colors[severity], fontWeight: 700, fontSize: 10, textTransform: 'uppercase' }}>
-        {severity}
-      </span>
-      <span style={{ color: 'var(--text-secondary)' }}>{flag}</span>
+    <div className="breadcrumb">
+      {parts.slice(-2).map((p, i) => (
+        <span key={i} className="breadcrumb-part">
+          {p}
+          <span className="breadcrumb-sep"> / </span>
+        </span>
+      ))}
+      <span className="breadcrumb-file">{file}</span>
     </div>
   )
 }
+
+const PANEL_TABS = [
+  { id: 'explain',  label: 'File' },
+  { id: 'flow',     label: 'Flow' },
+  { id: 'summary',  label: 'Repo' },
+  { id: 'security', label: 'Risks' },
+]
 
 export default function AIPanel({ sessionId, selectedFile, techStack, repoSummary }) {
   const [explanation, setExplanation] = useState(null)
   const [loading, setLoading] = useState(false)
   const [eli5, setEli5] = useState(false)
-  const [tab, setTab] = useState('explain') // explain | summary | flow | security
+  const [tab, setTab] = useState('explain')
 
   useEffect(() => {
     if (!sessionId || !selectedFile?.path) {
@@ -77,117 +84,120 @@ export default function AIPanel({ sessionId, selectedFile, techStack, repoSummar
       }
     })()
 
-    return () => {
-      cancelled = true
-    }
+    return () => { cancelled = true }
   }, [sessionId, selectedFile?.path, eli5])
-
-  const toggleEli5 = () => {
-    setEli5((v) => !v)
-  }
 
   return (
     <div id="report-capture-aipanel" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-      {/* Header */}
-      <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 16 }}>🧠</span>
-            <span style={{ fontWeight: 600, fontSize: 13 }}>AI Explanation</span>
-          </div>
-          {/* ELI5 Toggle */}
-          <motion.button
-            whileTap={{ scale: 0.95 }}
-            onClick={toggleEli5}
-            style={{
-              padding: '4px 10px', borderRadius: 20,
-              border: `1px solid ${eli5 ? '#7c3aed' : 'var(--border)'}`,
-              background: eli5 ? 'rgba(124,58,237,0.15)' : 'transparent',
-              color: eli5 ? '#a78bfa' : 'var(--text-muted)',
-              fontSize: 11, fontWeight: 600, cursor: 'pointer',
-              fontFamily: 'var(--font-sans)',
-            }}
-          >
-            🎈 ELI5
-          </motion.button>
-        </div>
 
-        {/* Tabs */}
-        <div style={{ display: 'flex', gap: 4 }}>
-          {['explain', 'flow', 'summary', 'security'].map((t) => (
-            <button key={t} className={`tab-btn ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
-              {t === 'explain' ? '📄 File' : t === 'flow' ? '⚡ Flow' : t === 'summary' ? '📊 Repo' : '🛡️ Risks'}
-            </button>
-          ))}
-        </div>
+      {/* ── Panel header ──────────────────────────────────────── */}
+      <div className="panel-section-header">
+        <span className="panel-section-label">AI Explanation</span>
+        <button
+          onClick={() => setEli5(v => !v)}
+          className={`btn-ghost ${eli5 ? 'active' : ''}`}
+          style={{ fontSize: 11, padding: '2px 8px', height: 'auto', borderRadius: 'var(--radius-sm)' }}
+        >
+          ELI5
+        </button>
       </div>
 
-      {/* Content */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: 14 }}>
+      {/* ── Tab bar ───────────────────────────────────────────── */}
+      <div style={{
+        display: 'flex',
+        borderBottom: '1px solid var(--border)',
+        padding: '0 8px',
+        flexShrink: 0,
+      }}>
+        {PANEL_TABS.map(t => (
+          <button
+            key={t.id}
+            className={`tab-btn ${tab === t.id ? 'active' : ''}`}
+            onClick={() => setTab(t.id)}
+            style={{ fontSize: 12, padding: '0 10px', height: 36 }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Content ───────────────────────────────────────────── */}
+      <div className="panel-body">
         <AnimatePresence mode="wait">
+
+          {/* FILE EXPLAIN */}
           {tab === 'explain' && (
             <motion.div
               key="explain"
-              initial={{ opacity: 0, x: 10 }}
+              initial={{ opacity: 0, x: 6 }}
               animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -10 }}
+              exit={{ opacity: 0, x: -6 }}
+              transition={{ duration: 0.2 }}
             >
               {!selectedFile && (
-                <div style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: 40 }}>
-                  <span style={{ fontSize: 32 }}>👆</span>
-                  <p style={{ marginTop: 8, fontSize: 13 }}>Click a file in the explorer or graph node to get AI analysis</p>
+                <div className="empty-state" style={{ height: 200 }}>
+                  <div className="empty-state-icon" style={{ fontSize: 24 }}>
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                      <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/>
+                      <polyline points="13 2 13 9 20 9"/>
+                    </svg>
+                  </div>
+                  <div className="empty-state-title">No file selected</div>
+                  <div className="empty-state-desc">Click any file in the explorer or a graph node</div>
                 </div>
               )}
 
               {loading && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {[80, 60, 90, 50, 70].map((w, i) => (
-                    <div key={i} className="shimmer" style={{ height: 12, borderRadius: 6, width: `${w}%` }} />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 8 }}>
+                  {[90, 70, 85, 55, 75].map((w, i) => (
+                    <div key={i} className="shimmer" style={{ height: 11, width: `${w}%` }} />
+                  ))}
+                  <div style={{ height: 8 }} />
+                  {[60, 80, 65].map((w, i) => (
+                    <div key={i} className="shimmer" style={{ height: 11, width: `${w}%` }} />
                   ))}
                 </div>
               )}
 
               {explanation && !loading && (
-                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  {/* File path */}
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
+                >
+                  {/* File path breadcrumb */}
                   {selectedFile && (
                     <div style={{
-                      padding: '6px 10px', borderRadius: 6,
-                      background: 'rgba(124,58,237,0.1)',
-                      border: '1px solid rgba(124,58,237,0.2)',
-                      fontFamily: 'var(--font-mono)', fontSize: 11,
-                      color: '#a78bfa', wordBreak: 'break-all',
+                      padding: '7px 10px',
+                      borderRadius: 'var(--radius-sm)',
+                      background: 'var(--bg-elevated)',
+                      border: '1px solid var(--border)',
                     }}>
-                      {selectedFile.path}
+                      <FileBreadcrumb path={selectedFile.path} />
                     </div>
                   )}
 
-                  {/* ELI5 badge */}
-                  {eli5 && <span className="badge badge-purple">🎈 ELI5 Mode</span>}
+                  {eli5 && <span className="badge badge-purple" style={{ alignSelf: 'flex-start' }}>ELI5 Mode</span>}
 
                   {/* Summary */}
-                  <div className="metric-card">
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, marginBottom: 6 }}>📝 SUMMARY</div>
-                    <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7 }}>{explanation.summary}</p>
+                  <div>
+                    <div className="section-label" style={{ marginBottom: 8 }}>Summary</div>
+                    <p className="prose">{explanation.summary}</p>
                   </div>
 
                   {/* Key functions */}
                   {explanation.key_functions?.length > 0 && (
-                    <div className="metric-card">
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, marginBottom: 10 }}>⚡ KEY FUNCTIONS</div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div>
+                      <div className="section-label" style={{ marginBottom: 8 }}>Key Functions</div>
+                      <div>
                         {explanation.key_functions.map((fn, i) => (
-                          <div key={i} style={{
-                            padding: '10px 12px', borderRadius: 10,
-                            background: 'rgba(59,130,246,0.05)',
-                            border: '1px solid rgba(59,130,246,0.1)',
-                          }}>
-                            <div style={{ fontSize: 12, fontWeight: 700, color: '#93c5fd', fontFamily: 'var(--font-mono)', marginBottom: 2 }}>
+                          <div key={i} className="fn-item">
+                            <div className="fn-name">
                               {typeof fn === 'string' ? fn : fn.name}
                             </div>
-                            <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.4 }}>
-                                {typeof fn === 'string' ? '' : fn.description}
-                            </div>
+                            {typeof fn !== 'string' && fn.description && (
+                              <div className="fn-desc">{fn.description}</div>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -196,11 +206,17 @@ export default function AIPanel({ sessionId, selectedFile, techStack, repoSummar
 
                   {/* Logic flow */}
                   {explanation.logic_flow && (
-                    <div className="metric-card">
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, marginBottom: 8 }}>🔄 LOGIC FLOW</div>
+                    <div>
+                      <div className="section-label" style={{ marginBottom: 8 }}>Logic Flow</div>
                       <div style={{
-                        padding: 12, borderRadius: 10, background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border)',
-                        fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7,
+                        padding: '10px 12px',
+                        borderRadius: 'var(--radius-md)',
+                        background: 'var(--bg-base)',
+                        border: '1px solid var(--border)',
+                        fontSize: 12.5,
+                        color: 'var(--text-secondary)',
+                        lineHeight: 1.7,
+                        fontFamily: 'var(--font-mono)',
                       }}>
                         {explanation.logic_flow}
                       </div>
@@ -209,12 +225,16 @@ export default function AIPanel({ sessionId, selectedFile, techStack, repoSummar
 
                   {/* Role in project */}
                   {explanation.role_in_project && (
-                    <div className="metric-card">
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, marginBottom: 8 }}>🎯 ROLE IN PROJECT</div>
+                    <div>
+                      <div className="section-label" style={{ marginBottom: 8 }}>Role in Project</div>
                       <div style={{
-                        padding: 12, borderRadius: 10, background: 'linear-gradient(135deg, rgba(139,94,242,0.05) 0%, transparent 100%)',
-                        border: '1px solid rgba(139,94,242,0.2)',
-                        fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7,
+                        padding: '10px 12px',
+                        borderRadius: 'var(--radius-md)',
+                        background: 'var(--bg-surface)',
+                        border: '1px solid var(--accent-border)',
+                        fontSize: 12.5,
+                        color: 'var(--text-secondary)',
+                        lineHeight: 1.7,
                       }}>
                         {explanation.role_in_project}
                       </div>
@@ -223,91 +243,113 @@ export default function AIPanel({ sessionId, selectedFile, techStack, repoSummar
 
                   {/* Security flags */}
                   {explanation.security_flags?.length > 0 && (
-                    <div className="metric-card">
-                      <div style={{ fontSize: 11, color: '#fca5a5', fontWeight: 600, marginBottom: 8 }}>⚠️ SECURITY FLAGS</div>
-                      {explanation.security_flags.map((flag, i) => (
-                        <SecurityFlag key={i} flag={flag} severity="high" />
-                      ))}
+                    <div>
+                      <div className="section-label" style={{ marginBottom: 8, color: 'var(--red)' }}>Security Flags</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {explanation.security_flags.map((flag, i) => (
+                          <div key={i} style={{
+                            display: 'flex', alignItems: 'flex-start', gap: 8,
+                            padding: '6px 10px',
+                            borderRadius: 'var(--radius-sm)',
+                            background: 'var(--red-muted)',
+                            border: '1px solid rgba(239,68,68,0.2)',
+                          }}>
+                            <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--red)', textTransform: 'uppercase', paddingTop: 2, flexShrink: 0 }}>
+                              ⚠
+                            </span>
+                            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{flag}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
 
                   {/* Confidence */}
                   {explanation.confidence !== undefined && (
-                    <div style={{ marginTop: 10, padding: 12, borderRadius: 12, background: 'rgba(0,0,0,0.15)', border: '1px solid var(--border)' }}>
-                      <ConfidenceBar value={explanation.confidence} />
-                    </div>
+                    <ConfidenceBar value={explanation.confidence} />
                   )}
                 </motion.div>
               )}
             </motion.div>
           )}
 
+          {/* FLOW */}
           {tab === 'flow' && (
             <motion.div
               key="flow"
-              initial={{ opacity: 0, x: 10 }}
+              initial={{ opacity: 0, x: 6 }}
               animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -10 }}
+              exit={{ opacity: 0, x: -6 }}
+              transition={{ duration: 0.2 }}
             >
               <ExecutionSimulator sessionId={sessionId} selectedFile={selectedFile} />
             </motion.div>
           )}
 
+          {/* REPO SUMMARY */}
           {tab === 'summary' && (
             <motion.div
               key="summary"
-              initial={{ opacity: 0, x: 10 }}
+              initial={{ opacity: 0, x: 6 }}
               animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -10 }}
+              exit={{ opacity: 0, x: -6 }}
+              transition={{ duration: 0.2 }}
             >
               {!repoSummary ? (
-                <div style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: 40 }}>
-                  <span style={{ fontSize: 32 }}>📊</span>
-                  <p style={{ marginTop: 8, fontSize: 13 }}>Repo summary loading...</p>
+                <div className="empty-state" style={{ height: 180 }}>
+                  <div className="empty-state-icon" style={{ fontSize: 20 }}>⏳</div>
+                  <div className="empty-state-title">Summary loading…</div>
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   {repoSummary.elevator_pitch && (
                     <div style={{
-                      padding: 14, borderRadius: 12,
-                      background: 'linear-gradient(135deg, rgba(124,58,237,0.1), rgba(59,130,246,0.1))',
-                      border: '1px solid rgba(124,58,237,0.2)',
+                      padding: '12px 14px',
+                      borderRadius: 'var(--radius-lg)',
+                      background: 'var(--bg-elevated)',
+                      border: '1px solid var(--accent-border)',
                     }}>
-                      <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
+                      <p style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--text-primary)', lineHeight: 1.6, fontStyle: 'italic' }}>
                         "{repoSummary.elevator_pitch}"
                       </p>
                     </div>
                   )}
                   {repoSummary.detailed_summary && (
-                    <div className="metric-card">
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, marginBottom: 6 }}>📋 OVERVIEW</div>
-                      <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7 }}>{repoSummary.detailed_summary}</p>
+                    <div>
+                      <div className="section-label" style={{ marginBottom: 8 }}>Overview</div>
+                      <p className="prose">{repoSummary.detailed_summary}</p>
                     </div>
                   )}
                   {repoSummary.sixty_second_explanation && (
-                    <div className="metric-card">
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, marginBottom: 6 }}>⏱️ 60-SECOND PITCH</div>
-                      <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7 }}>{repoSummary.sixty_second_explanation}</p>
+                    <div>
+                      <div className="section-label" style={{ marginBottom: 8 }}>60-Second Pitch</div>
+                      <p className="prose">{repoSummary.sixty_second_explanation}</p>
                     </div>
                   )}
                   {repoSummary.strengths?.length > 0 && (
-                    <div className="metric-card">
-                      <div style={{ fontSize: 11, color: '#6ee7b7', fontWeight: 600, marginBottom: 8 }}>✅ STRENGTHS</div>
-                      {repoSummary.strengths.map((s, i) => (
-                        <div key={i} style={{ fontSize: 12, color: 'var(--text-secondary)', padding: '3px 0' }}>
-                          <span style={{ color: '#6ee7b7', marginRight: 6 }}>+</span>{s}
-                        </div>
-                      ))}
+                    <div>
+                      <div className="section-label" style={{ marginBottom: 8, color: 'var(--green)' }}>Strengths</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {repoSummary.strengths.map((s, i) => (
+                          <div key={i} style={{ display: 'flex', gap: 8, fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                            <span style={{ color: 'var(--green)', fontWeight: 600, flexShrink: 0 }}>+</span>
+                            <span>{s}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
                   {repoSummary.weaknesses?.length > 0 && (
-                    <div className="metric-card">
-                      <div style={{ fontSize: 11, color: '#fca5a5', fontWeight: 600, marginBottom: 8 }}>⚠️ WEAKNESSES</div>
-                      {repoSummary.weaknesses.map((w, i) => (
-                        <div key={i} style={{ fontSize: 12, color: 'var(--text-secondary)', padding: '3px 0' }}>
-                          <span style={{ color: '#fca5a5', marginRight: 6 }}>-</span>{w}
-                        </div>
-                      ))}
+                    <div>
+                      <div className="section-label" style={{ marginBottom: 8, color: 'var(--red)' }}>Weaknesses</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {repoSummary.weaknesses.map((w, i) => (
+                          <div key={i} style={{ display: 'flex', gap: 8, fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                            <span style={{ color: 'var(--red)', fontWeight: 600, flexShrink: 0 }}>−</span>
+                            <span>{w}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
                   {repoSummary.confidence !== undefined && (
@@ -318,27 +360,29 @@ export default function AIPanel({ sessionId, selectedFile, techStack, repoSummar
             </motion.div>
           )}
 
+          {/* RISKS */}
           {tab === 'security' && (
             <motion.div
               key="security"
-              initial={{ opacity: 0, x: 10 }}
+              initial={{ opacity: 0, x: 6 }}
               animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -10 }}
+              exit={{ opacity: 0, x: -6 }}
+              transition={{ duration: 0.2 }}
             >
-              <SecurityTab sessionId={sessionId} />
+              <div className="empty-state" style={{ height: 180 }}>
+                <div className="empty-state-icon" style={{ fontSize: 20 }}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                  </svg>
+                </div>
+                <div className="empty-state-title">Security risks</div>
+                <div className="empty-state-desc">View full risk breakdown in the Dashboard tab</div>
+              </div>
             </motion.div>
           )}
+
         </AnimatePresence>
       </div>
-    </div>
-  )
-}
-
-function SecurityTab({ sessionId }) {
-  return (
-    <div style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: 30 }}>
-      <span style={{ fontSize: 32 }}>🛡️</span>
-      <p style={{ marginTop: 8, fontSize: 13 }}>Security risks are shown in the Dashboard tab</p>
     </div>
   )
 }

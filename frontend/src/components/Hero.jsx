@@ -1,63 +1,52 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { toast } from 'react-hot-toast'
+import UserMenu from './UserMenu'
 
 const SAMPLE_REPOS = [
-  'https://github.com/tiangolo/fastapi',
-  'https://github.com/pallets/flask',
-  'https://github.com/expressjs/express',
-  'https://github.com/facebook/react',
+  { name: 'fastapi', url: 'https://github.com/tiangolo/fastapi' },
+  { name: 'flask', url: 'https://github.com/pallets/flask' },
+  { name: 'express', url: 'https://github.com/expressjs/express' },
+  { name: 'react', url: 'https://github.com/facebook/react' },
 ]
 
 const FEATURES = [
-  { icon: '🌳', title: 'File Explorer', desc: 'VS Code–style tree — navigate thousands of files instantly.', accent: 'violet' },
-  { icon: '🔗', title: 'Dependency Graph', desc: 'Interactive force-directed graph of imports & modules.', accent: 'blue' },
-  { icon: '🧠', title: 'AI Deep Dive', desc: 'Groq-powered explanations for any file or flow you select.', accent: 'pink' },
-  { icon: '⚡', title: '60s Summary', desc: 'Elevator pitch + strengths, weaknesses, and complexity.', accent: 'cyan' },
-  { icon: '🛡️', title: 'Risk Radar', desc: 'Regex scan for secrets, XSS, injection patterns & debt.', accent: 'emerald' },
-  { icon: '📄', title: 'README Studio', desc: 'Generate a polished README from detected architecture.', accent: 'amber' },
+  { icon: '🌳', title: 'File Explorer', desc: 'VS Code–style tree navigation across any repo.' },
+  { icon: '🔗', title: 'Dependency Graph', desc: 'Interactive force-directed import graph.' },
+  { icon: '🧠', title: 'AI Deep Dive', desc: 'Groq-powered explanations for any file.' },
+  { icon: '⚡', title: '60s Summary', desc: 'Elevator pitch, strengths & complexity score.' },
+  { icon: '🛡️', title: 'Risk Radar', desc: 'Scans for secrets, XSS & injection patterns.' },
+  { icon: '📄', title: 'README Studio', desc: 'Generate a polished README from architecture.' },
 ]
 
 const container = {
   hidden: { opacity: 0 },
   show: {
     opacity: 1,
-    transition: { staggerChildren: 0.08, delayChildren: 0.12 },
+    transition: { staggerChildren: 0.06, delayChildren: 0.1 },
   },
 }
 
 const item = {
-  hidden: { opacity: 0, y: 16 },
-  show: { opacity: 1, y: 0, transition: { type: 'spring', stiffness: 380, damping: 28 } },
+  hidden: { opacity: 0, y: 10 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.35, ease: [0.22, 1, 0.36, 1] } },
 }
 
-const bentoBlock = {
-  hidden: { opacity: 0, y: 14 },
+const featuresVariant = {
+  hidden: { opacity: 0 },
   show: {
     opacity: 1,
-    y: 0,
-    transition: {
-      duration: 0.5,
-      ease: [0.22, 1, 0.36, 1],
-      staggerChildren: 0.055,
-      delayChildren: 0.02,
-    },
+    transition: { staggerChildren: 0.04, delayChildren: 0.3 },
   },
 }
 
-const bentoItem = {
-  hidden: { opacity: 0, y: 22, scale: 0.98 },
-  show: {
-    opacity: 1,
-    y: 0,
-    scale: 1,
-    transition: { type: 'spring', stiffness: 420, damping: 28 },
-  },
+const featureItem = {
+  hidden: { opacity: 0, y: 8 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.3, ease: 'easeOut' } },
 }
 
 export default function Hero({ onAnalyze, loading }) {
   const [url, setUrl] = useState('')
-  const [focused, setFocused] = useState(false)
 
   const handleSubmit = (e) => {
     e.preventDefault()
@@ -75,123 +64,132 @@ export default function Hero({ onAnalyze, loading }) {
 
   return (
     <div className="hero-shell">
-      <div className="hero-base" aria-hidden />
-      <div className="hero-aurora" aria-hidden>
-        <span className="a" />
-        <span className="b" />
-        <span className="c" />
-      </div>
-      <div className="hero-grid-lines" aria-hidden />
-      <div className="hero-noise" aria-hidden />
-      <div className="hero-frame" aria-hidden />
+      {/* ── Top navigation bar ─────────────────────────────────── */}
+      <nav className="hero-nav">
+        <div className="wordmark">
+          <div className="wordmark-icon" aria-hidden>
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <circle cx="7" cy="7" r="2.5" fill="white" opacity="0.9"/>
+              <path d="M7 1.5C4 1.5 1.5 4 1.5 7" stroke="white" strokeWidth="1.5" strokeLinecap="round" opacity="0.5"/>
+              <path d="M7 12.5C10 12.5 12.5 10 12.5 7" stroke="white" strokeWidth="1.5" strokeLinecap="round" opacity="0.5"/>
+              <path d="M1.5 7C1.5 10 4 12.5 7 12.5" stroke="white" strokeWidth="1.5" strokeLinecap="round" opacity="0.25"/>
+              <path d="M12.5 7C12.5 4 10 1.5 7 1.5" stroke="white" strokeWidth="1.5" strokeLinecap="round" opacity="0.25"/>
+            </svg>
+          </div>
+          <span className="wordmark-text">CodeScope <span>AI</span></span>
+        </div>
 
-      <motion.div
-        className="hero-inner"
-        initial="hidden"
-        animate="show"
-        variants={container}
-      >
-
-        <motion.h1 variants={item} className="hero-title">
-          <span className="hero-title-line1">CodeScope</span>
-          <span className="hero-title-line2">
-            <span className="hero-title-ai">AI</span>
+        <div className="hero-nav-links">
+          <span className="hero-nav-badge">
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} />
+            Open Beta
           </span>
-        </motion.h1>
+          <UserMenu />
+        </div>
+      </nav>
 
-        <motion.p variants={item} className="hero-sub">
-          Paste a GitHub URL. We clone, map dependencies, scan risks, and explain the code —{' '}
-          <strong style={{ color: '#cbd5e1', fontWeight: 600 }}>one flow, zero config.</strong>
-        </motion.p>
-
-        <motion.div variants={item} className="hero-pills">
-          {['Live graph', 'Session-aware AI', 'Security scan'].map((label) => (
-            <span key={label} className="hero-pill">
-              {label}
+      {/* ── Main hero content ───────────────────────────────────── */}
+      <div className="hero-content">
+        <motion.div
+          className="hero-inner"
+          variants={container}
+          initial="hidden"
+          animate="show"
+        >
+          {/* Eyebrow */}
+          <motion.div variants={item} style={{ display: 'flex', justifyContent: 'center', marginBottom: 28 }}>
+            <span className="hero-eyebrow">
+              AI-powered codebase exploration
             </span>
-          ))}
-        </motion.div>
+          </motion.div>
 
-        <motion.form variants={item} onSubmit={handleSubmit}>
-          <div className="hero-input-outer" data-focus={focused ? 'true' : 'false'}>
-            <div className="hero-input-inner">
-              <span style={{ alignSelf: 'center', opacity: 0.7, flexShrink: 0 }} aria-hidden>
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-                  <path
-                    d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"
-                    fill="currentColor"
-                    style={{ color: '#64748b' }}
-                  />
-                </svg>
-              </span>
+          {/* Headline */}
+          <motion.h1 variants={item} className="hero-title">
+            Understand any{' '}
+            <span className="hero-title-accent">GitHub repo</span>
+            {' '}in minutes
+          </motion.h1>
+
+          {/* Subtitle */}
+          <motion.p variants={item} className="hero-subtitle">
+            Paste a URL. We clone it, map dependencies, scan for risks,
+            and give you an AI-powered walkthrough — zero config.
+          </motion.p>
+
+          {/* Input form */}
+          <motion.form variants={item} className="hero-form" onSubmit={handleSubmit}>
+            <div className="hero-input-row">
+              {/* GitHub icon */}
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, opacity: 0.4 }}>
+                <path
+                  d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"
+                  fill="currentColor"
+                  style={{ color: 'var(--text-muted)' }}
+                />
+              </svg>
               <input
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
-                onFocus={() => setFocused(true)}
-                onBlur={() => setFocused(false)}
                 placeholder="https://github.com/owner/repository"
                 autoComplete="url"
                 spellCheck={false}
+                style={{ fontSize: 14 }}
               />
               <motion.button
-                whileHover={{ scale: loading ? 1 : 1.02 }}
-                whileTap={{ scale: loading ? 1 : 0.98 }}
                 type="submit"
                 disabled={loading || !url.trim()}
                 className="hero-btn-analyze"
+                whileHover={{ scale: loading ? 1 : 1.02 }}
+                whileTap={{ scale: loading ? 1 : 0.98 }}
               >
                 {loading ? (
-                  <span className="hero-loading-icon" aria-label="Loading">
-                    ⟳
-                  </span>
+                  <span className="hero-loading-icon" aria-label="Loading">↻</span>
                 ) : (
-                  'Analyze →'
+                  <>Analyze <span style={{ opacity: 0.7 }}>→</span></>
                 )}
               </motion.button>
             </div>
-          </div>
-        </motion.form>
+          </motion.form>
 
-        <motion.div variants={item} className="hero-try-row">
-          <span className="hero-try-label">Try</span>
-          {SAMPLE_REPOS.map((repo, i) => {
-            const name = repo.split('/').pop()
-            return (
+          {/* Sample repos */}
+          <motion.div variants={item} className="hero-samples">
+            <span className="hero-sample-label">Try</span>
+            {SAMPLE_REPOS.map((repo) => (
               <button
-                key={i}
+                key={repo.name}
                 type="button"
-                className="hero-chip"
+                className="hero-sample-chip"
                 onClick={() => {
-                  setUrl(repo)
-                  onAnalyze(repo)
+                  setUrl(repo.url)
+                  onAnalyze(repo.url)
                 }}
               >
-                {name}
+                {repo.name}
               </button>
-            )
-          })}
-        </motion.div>
+            ))}
+          </motion.div>
 
-        <motion.div className="hero-bento" variants={bentoBlock} style={{ marginTop: 8 }}>
-          {FEATURES.map((f) => (
-            <motion.div
-              key={f.title}
-              variants={bentoItem}
-              className={`hero-card hero-card--${f.accent}`}
-              onMouseMove={(e) => {
-                const el = e.currentTarget
-                const rect = el.getBoundingClientRect()
-                el.style.setProperty('--mx', `${((e.clientX - rect.left) / rect.width) * 100}%`)
-                el.style.setProperty('--my', `${((e.clientY - rect.top) / rect.height) * 100}%`)
-              }}
-            >
-              <div className="hero-card-icon">{f.icon}</div>
-              <h3>{f.title}</h3>
-              <p>{f.desc}</p>
-            </motion.div>
-          ))}
+          {/* Feature grid */}
+          <motion.div
+            className="hero-features"
+            variants={featuresVariant}
+          >
+            {FEATURES.map((f) => (
+              <motion.div
+                key={f.title}
+                variants={featureItem}
+                className="hero-feature-item"
+              >
+                <div className="hero-feature-icon">{f.icon}</div>
+                <div className="hero-feature-text">
+                  <h4>{f.title}</h4>
+                  <p>{f.desc}</p>
+                </div>
+              </motion.div>
+            ))}
+          </motion.div>
         </motion.div>
-      </motion.div>
+      </div>
     </div>
   )
 }
