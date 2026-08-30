@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Toaster, toast } from 'react-hot-toast'
 
@@ -40,7 +40,7 @@ function LogoIcon({ size = 20 }) {
 
 // ── Inner app (requires auth) ────────────────────────────────────────
 function AppInner() {
-  const { user, loading: authLoading } = useAuth()
+  const { loading: authLoading } = useAuth()
 
   if (authLoading) {
     return (
@@ -48,10 +48,6 @@ function AppInner() {
         <span className="auth-spinner" style={{ width: 28, height: 28, borderWidth: 3 }} />
       </div>
     )
-  }
-
-  if (!user) {
-    return <AuthPage />
   }
 
   return <AppShell />
@@ -66,7 +62,9 @@ export default function App() {
 }
 
 function AppShell() {
-  const [view, setView] = useState('hero') // hero | explorer
+  const { user } = useAuth()
+  const [view, setView] = useState('hero') // hero | explorer | auth
+  const [pendingUrl, setPendingUrl] = useState('')
   const [loading, setLoading] = useState(false)
   const [loadingMessage, setLoadingMessage] = useState('')
   const [centerTab, setCenterTab] = useState('graph')
@@ -91,8 +89,25 @@ function AppShell() {
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
+  // ── Redirect flow ─────────────────────────────────────────────────
+  useEffect(() => {
+    if (user && view === 'auth') {
+      setView('hero')
+      if (pendingUrl) {
+        handleAnalyze(pendingUrl)
+        setPendingUrl('')
+      }
+    }
+  }, [user, view, pendingUrl])
+
   // ── Analyze repo ──────────────────────────────────────────────────
   const handleAnalyze = useCallback(async (url) => {
+    if (!user) {
+      setPendingUrl(url)
+      setView('auth')
+      return
+    }
+
     setLoading(true)
     setLoadingMessage('Queued for analysis...')
     setView('hero')
@@ -239,7 +254,17 @@ function AppShell() {
       <LoadingOverlay visible={loading} statusText={loadingMessage} />
 
       <AnimatePresence mode="wait">
-        {view === 'hero' ? (
+        {view === 'auth' ? (
+          <motion.div
+            key="auth"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0, transition: { duration: 0.15 } }}
+            style={{ height: '100vh', overflow: 'auto' }}
+          >
+            <AuthPage />
+          </motion.div>
+        ) : view === 'hero' ? (
           <motion.div
             key="hero"
             initial={{ opacity: 0 }}
