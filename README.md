@@ -11,20 +11,26 @@
 
 <br />
 
-![Landing Page](./assets/Screenshot%202026-08-30%20105943.png)
+![Landing Page](./assets/Screenshot%202026-08-30%20105508.png)
 
 CodeScope AI is a full-stack web application designed to help developers **understand unfamiliar codebases blazing fast**. By simply pasting a public GitHub repository URL, CodeScope AI clones, parses, and visualizes the repository structure, all while offering deep insights through its LLM-powered engine.
 
 ## 📸 Gallery
 
 <p align="center">
-  <img src="./assets/Screenshot%202026-08-30%20105943.png" alt="Full Repository Analysis Graph" width="800">
+  <img src="./assets/Screenshot%202026-08-30%20110753.png" alt="Authentication and Login" width="800">
+  <br>
+  <i>Secure authentication to access project dashboards and workspaces</i>
+</p>
+
+<p align="center">
+  <img src="./assets/Screenshot%202026-08-30%20105930.png" alt="Full Repository Analysis Graph" width="800">
   <br>
   <i>Full repository explorer with dependency graphs and file relationships</i>
 </p>
 
 <p align="center">
-  <img src="./assets/Screenshot%202026-08-30%20105930.png" alt="AI Explanation Panel" width="800">
+  <img src="./assets/Screenshot%202026-08-30%20105943.png" alt="AI Explanation Panel" width="800">
   <br>
   <i>In-depth AI explanations and summary for any selected file</i>
 </p>
@@ -33,16 +39,6 @@ CodeScope AI is a full-stack web application designed to help developers **under
   <img src="./assets/Screenshot%202026-08-30%20110147.png" alt="Code Viewer and Chat" width="800">
   <br>
   <i>Context-aware AI chat alongside the full code viewer</i>
-</p>
-
-<p align="center">
-  <img src="./assets/Screenshot%202026-08-30%20110753.png" alt="Graph Edge Types" width="400">
-  <br>
-  <i>Clear visual indicators for different types of dependencies and containments</i>
-</p>
-
-<p align="center">
-  <img src="./assets/Screenshot%202026-08-30%20105508.png" alt="Additional UI" width="400">
 </p>
 
 
