@@ -18,39 +18,29 @@ CodeScope AI is a full-stack web application designed to help developers **under
 ## 📸 Gallery
 
 <p align="center">
-  <img src="./assets/full_view.png" alt="Full Repository Analysis" width="800">
-
+  <img src="./assets/full_graph.png" alt="Full Repository Analysis Graph" width="800">
   <br>
-  <i>Full repository explorer with dependency graphs and AI explanations</i>
+  <i>Full repository explorer with dependency graphs and file relationships</i>
 </p>
 
 <p align="center">
-  <img src="./assets/dashboard.png" alt="Project Dashboard" width="800">
+  <img src="./assets/ai_explanation.png" alt="AI Explanation Panel" width="800">
   <br>
-  <i>In-depth project statistics and architecture hints</i>
+  <i>In-depth AI explanations and summary for any selected file</i>
 </p>
 
 <p align="center">
-  <img src="./assets/graph_chat.png" alt="AI Chat" width="800">
+  <img src="./assets/code_viewer_chat.png" alt="Code Viewer and Chat" width="800">
   <br>
-  <i>Context-aware AI chat with visual graph mapping</i>
+  <i>Context-aware AI chat alongside the full code viewer</i>
 </p>
 
-## 🧩 How It Works (Workflow)
+<p align="center">
+  <img src="./assets/edge_types.png" alt="Graph Edge Types" width="400">
+  <br>
+  <i>Clear visual indicators for different types of dependencies and containments</i>
+</p>
 
-```mermaid
-graph TD
-    A[User Inputs GitHub URL] --> B{FastAPI Backend}
-    B --> C[Clone & Parse Repo]
-    C --> D[Extract AST & Imports]
-    D --> E[Build Dependency Graph]
-    E --> F[Security Radar Scan]
-    F --> G[Groq LLM Context Generation]
-    G --> H[React / Vite Frontend]
-    H --> I[Interactive Dashboard]
-    I --> J[AI Chat & Explain Code]
-    I --> K[View Flow Simulator]
-```
 
 ## ✨ Features
 
